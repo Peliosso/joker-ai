@@ -58,9 +58,10 @@ app.post("/chat-stream", async (req, res) => {
   if (!userMessage) return res.end();
 
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.setHeader("Transfer-Encoding", "chunked");
+  res.write(" "); // força flush no Render
 
   let finalReply = "";
+  let buffer = "";
 
   try {
     const response = await fetch(
@@ -93,19 +94,27 @@ app.post("/chat-stream", async (req, res) => {
     );
 
     for await (const chunk of response.body) {
-      const text = chunk.toString();
-      if (text.includes("[DONE]")) break;
+      buffer += chunk.toString();
 
-      const lines = text.split("\n").filter(l => l.startsWith("data:"));
+      // processa apenas linhas completas
+      let lines = buffer.split("\n");
+      buffer = lines.pop(); // guarda resto incompleto
+
       for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        if (line.includes("[DONE]")) continue;
+
         try {
-          const json = JSON.parse(line.replace("data:", ""));
+          const json = JSON.parse(line.replace("data:", "").trim());
           const token = json.choices?.[0]?.delta?.content;
+
           if (token) {
             finalReply += token;
-            res.write(token); // 🔥 TEXTO PURO
+            res.write(token);
           }
-        } catch {}
+        } catch {
+          // ignora JSON incompleto
+        }
       }
     }
   } catch (err) {
