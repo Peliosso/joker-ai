@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Joker AI ♠ Dashboard</title>
+<title>Joker AI ♠ Admin</title>
 
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=Playfair+Display&display=swap" rel="stylesheet">
 
@@ -23,7 +23,7 @@ body{
 }
 
 header{
-  padding:20px;
+  padding:22px;
   text-align:center;
   font-family:'Cinzel',serif;
   font-size:22px;
@@ -31,16 +31,30 @@ header{
   border-bottom:1px solid rgba(212,180,106,.3);
 }
 
+.status-bar{
+  text-align:center;
+  margin-top:10px;
+  font-family:'Cinzel',serif;
+  font-size:13px;
+}
+
+.status.online{color:#7CFF7C}
+.status.offline{color:#FF7C7C}
+.status.maintenance{color:#FFD27C}
+
+/* actions */
 .actions{
   display:flex;
+  flex-wrap:wrap;
+  gap:12px;
   justify-content:center;
-  padding:16px;
+  padding:18px;
 }
 
 button{
   background:linear-gradient(135deg,var(--gold-soft),#9c7c2f);
   border:none;
-  padding:12px 22px;
+  padding:12px 20px;
   border-radius:20px;
   cursor:pointer;
   font-family:'Cinzel',serif;
@@ -50,9 +64,9 @@ button{
 button:hover{transform:scale(1.05)}
 
 .logs{
-  max-width:900px;
-  margin:20px auto;
-  padding:0 16px 40px;
+  max-width:960px;
+  margin:20px auto 40px;
+  padding:0 16px;
 }
 
 .log{
@@ -98,38 +112,115 @@ button:hover{transform:scale(1.05)}
 
 <body>
 
-<header>🃏 Joker AI ♠ — Dashboard</header>
+<header>
+  🃏 Joker AI ♠ — Admin
+  <div class="status-bar">
+    Status atual:
+    <span id="statusLabel" class="status">●</span>
+  </div>
+</header>
 
 <div class="actions">
-  <button onclick="loadLogs()">Atualizar Logs</button>
+  <button onclick="setStatus('online')">🟢 Online</button>
+  <button onclick="setStatus('maintenance')">🟡 Manutenção</button>
+  <button onclick="setStatus('offline')">🔴 Offline</button>
+  <button onclick="loadLogs()">🔄 Atualizar Logs</button>
 </div>
 
 <div class="logs" id="logs"></div>
 
 <script>
-const params = new URLSearchParams(window.location.search);
-const key = params.get("key");
+/* ================= STATUS ================= */
+
+const STATUS_KEY = "joker_status";
+const statusLabel = document.getElementById("statusLabel");
+
+function setStatus(type){
+  localStorage.setItem(STATUS_KEY, type);
+  updateStatusUI(type);
+  logAdmin(`Status alterado para ${type.toUpperCase()}`);
+}
+
+function getStatus(){
+  return localStorage.getItem(STATUS_KEY) || "online";
+}
+
+function updateStatusUI(type){
+  let text = "● ";
+  let cls = "status ";
+
+  if(type === "online"){
+    text += "Online";
+    cls += "online";
+  }
+  if(type === "offline"){
+    text += "Offline";
+    cls += "offline";
+  }
+  if(type === "maintenance"){
+    text += "Manutenção";
+    cls += "maintenance";
+  }
+
+  statusLabel.textContent = text;
+  statusLabel.className = cls;
+}
+
+updateStatusUI(getStatus());
+
+/* ================= LOGS ================= */
+
+function logAdmin(text){
+  const logs = JSON.parse(localStorage.getItem("joker_admin_logs") || "[]");
+
+  logs.unshift({
+    time: new Date().toLocaleString(),
+    ip: "ADMIN",
+    message: "Painel Administrativo",
+    reply: text,
+    ua: navigator.userAgent
+  });
+
+  localStorage.setItem("joker_admin_logs", JSON.stringify(logs));
+}
 
 async function loadLogs(){
-  const res = await fetch(`/logs?key=${key}`);
-  const data = await res.json();
-
   const container = document.getElementById("logs");
   container.innerHTML = "";
 
-  data.forEach(log=>{
+  let serverLogs = [];
+
+  // tenta carregar logs do backend (se existir)
+  try{
+    const params = new URLSearchParams(window.location.search);
+    const key = params.get("key");
+    if(key){
+      const res = await fetch(`/logs?key=${key}`);
+      serverLogs = await res.json();
+    }
+  }catch{}
+
+  const adminLogs = JSON.parse(localStorage.getItem("joker_admin_logs") || "[]");
+  const all = [...adminLogs, ...serverLogs];
+
+  if(all.length === 0){
+    container.innerHTML = "<div class='log'>Nenhum log encontrado.</div>";
+    return;
+  }
+
+  all.forEach(log=>{
     const div = document.createElement("div");
     div.className = "log";
     div.innerHTML = `
       <div class="meta">${log.time} • ${log.ip}</div>
 
       <div class="block">
-        <div class="label">Mensagem do usuário</div>
+        <div class="label">Mensagem</div>
         <div class="msg">${log.message}</div>
       </div>
 
       <div class="block">
-        <div class="label">Resposta da IA</div>
+        <div class="label">Detalhe</div>
         <div class="msg">${log.reply}</div>
       </div>
 
