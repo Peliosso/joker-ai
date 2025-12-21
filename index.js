@@ -55,14 +55,10 @@ app.get("/logs", (req, res) => {
 /* ================= CHAT STREAM ================= */
 app.post("/chat-stream", async (req, res) => {
   const userMessage = req.body.message;
-  if (!userMessage) {
-    return res.end();
-  }
+  if (!userMessage) return res.end();
 
-  // Headers SSE
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
-  res.setHeader("Connection", "keep-alive");
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("Transfer-Encoding", "chunked");
 
   let finalReply = "";
 
@@ -85,7 +81,7 @@ app.post("/chat-stream", async (req, res) => {
             {
               role: "system",
               content:
-                "Você é o JokerAI. Responda em português do Brasil. Seja direto, claro e objetivo."
+                "Você é o JokerAI. Responda em português do Brasil. Seja direto."
             },
             {
               role: "user",
@@ -98,7 +94,6 @@ app.post("/chat-stream", async (req, res) => {
 
     for await (const chunk of response.body) {
       const text = chunk.toString();
-
       if (text.includes("[DONE]")) break;
 
       const lines = text.split("\n").filter(l => l.startsWith("data:"));
@@ -108,15 +103,16 @@ app.post("/chat-stream", async (req, res) => {
           const token = json.choices?.[0]?.delta?.content;
           if (token) {
             finalReply += token;
-            res.write(`data: ${token}\n\n`);
+            res.write(token); // 🔥 TEXTO PURO
           }
         } catch {}
       }
     }
-
   } catch (err) {
-    res.write(`data: ⚠️ Erro ao conectar com a IA.\n\n`);
+    res.write("⚠️ Erro ao conectar com a IA.");
   }
+
+  res.end();
 
   saveLog({
     ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
@@ -124,8 +120,6 @@ app.post("/chat-stream", async (req, res) => {
     message: userMessage,
     reply: finalReply
   });
-
-  res.end();
 });
 
 /* ================= SERVER ================= */
