@@ -68,10 +68,13 @@ app.post("/chat", async (req, res) => {
     return res.json({ reply: "Mensagem vazia." });
   }
 
-  let reply = "Sem resposta da IA.";
-  let usedTokenIndex = currentKeyIndex;
+  let reply = null;
+  let attempts = 0;
+  let usedTokenIndex = null;
+  let retried = false;
 
   for (let attempt = 0; attempt < API_KEYS.length; attempt++) {
+    attempts++;
     const apiKey = getNextApiKey();
     usedTokenIndex = currentKeyIndex;
 
@@ -106,15 +109,38 @@ app.post("/chat", async (req, res) => {
 
       const data = await response.json();
 
-      if (data?.choices?.[0]?.message?.content) {
+      if (data?.choices?.[0]?.message?.content?.trim()) {
         reply = data.choices[0].message.content;
-        break; // ✅ sucesso → para o loop
+        break; // ✅ sucesso
+      } else {
+        retried = true;
       }
 
     } catch (err) {
-      console.error("Erro com token", usedTokenIndex);
+      console.error("Erro com token", usedTokenIndex, err.message);
+      retried = true;
     }
   }
+
+  if (!reply) {
+    reply = "❌ A IA não respondeu após várias tentativas. Tente novamente em instantes.";
+  }
+
+  /* ===== SALVAR LOG ===== */
+  saveLog({
+    ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+    ua: req.headers["user-agent"],
+    message: userMessage,
+    reply,
+    tokenIndex: usedTokenIndex
+  });
+
+  res.json({
+    reply,
+    retried,
+    attempts
+  });
+});
 
   /* ===== SALVAR LOG ===== */
   saveLog({
