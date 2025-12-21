@@ -58,7 +58,7 @@ app.post("/chat", async (req, res) => {
   let usedTokenIndex = null;
 
   const MAX_ATTEMPTS = Math.min(2, API_KEYS.length);
-  const TIMEOUT_MS = 6000;
+  const TIMEOUT_MS = 12000; // ⬅️ MAIS REALISTA
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const apiKey = getNextApiKey();
@@ -79,13 +79,13 @@ app.post("/chat", async (req, res) => {
           },
           body: JSON.stringify({
             model: "wormgpt-v7",
-            max_tokens: 250, // ⚡ rápido
+            max_tokens: 250,
             temperature: 0.3,
             messages: [
               {
                 role: "system",
                 content:
-                  "Você é o JokerAI. Responda em português do Brasil, de forma direta, clara e objetiva."
+                  "Você é o JokerAI. Responda em português do Brasil de forma direta e objetiva."
               },
               {
                 role: "user",
@@ -98,7 +98,22 @@ app.post("/chat", async (req, res) => {
 
       clearTimeout(timeout);
 
-      const data = await response.json();
+      if (!response.ok) {
+        console.error("HTTP erro:", response.status);
+        retried = true;
+        continue;
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch {
+        const text = await response.text();
+        console.error("Resposta não JSON:", text.slice(0, 200));
+        retried = true;
+        continue;
+      }
+
       const content = data?.choices?.[0]?.message?.content?.trim();
 
       if (content) {
@@ -109,12 +124,13 @@ app.post("/chat", async (req, res) => {
       }
 
     } catch (err) {
+      console.error("Erro fetch:", err.name);
       retried = true;
     }
   }
 
   if (!reply) {
-    reply = "⚠️ Instabilidade momentânea. Tente novamente.";
+    reply = "⚠️ A IA está instável no momento. Tente novamente em alguns segundos.";
   }
 
   saveLog({
