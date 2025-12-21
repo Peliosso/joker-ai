@@ -1,13 +1,13 @@
-import path from "path";
-import { fileURLToPath } from "url";
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
 import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const app = express();
-app.use(express.json());
 app.use(cors());
+app.use(express.json());
 
 /* ================= CONFIG ================= */
 const API_KEY = process.env.WRMGPT_API_KEY;
@@ -15,25 +15,8 @@ const ADMIN_KEY = process.env.ADMIN_KEY || "joker-admin-171";
 const PORT = process.env.PORT || 3000;
 const LOG_FILE = "./logs.txt";
 
-import path from "path";
-import { fileURLToPath } from "url";
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-/* ===== DASHBOARD PAGE ===== */
-app.get("/admin", (req, res) => {
-  const key = req.query.key;
-
-  if (key !== ADMIN_KEY) {
-    return res.status(403).send("Acesso negado.");
-  }
-
-  res.sendFile(path.join(__dirname, "admin.html"));
-});
 
 /* ================= LOG SYSTEM ================= */
 let memoryLogs = [];
@@ -41,34 +24,47 @@ let memoryLogs = [];
 function saveLog({ ip, ua, message, reply }) {
   const time = new Date().toLocaleString("pt-BR");
 
-  const logText =
-`[${time}]
+  fs.appendFile(
+    LOG_FILE,
+    `[${time}]
 IP: ${ip}
-User-Agent: ${ua}
-Mensagem: ${message}
-Resposta: ${reply}
-----------------------------------\n`;
+UA: ${ua}
+MSG: ${message}
+RES: ${reply}
+--------------------\n`,
+    () => {}
+  );
 
-  // salva em arquivo
-  fs.appendFile(LOG_FILE, logText, err => {
-    if (err) console.error("Erro ao salvar log:", err);
-  });
-
-  // salva em memória (para painel)
   memoryLogs.push({ time, ip, ua, message, reply });
-
-  // evita memória infinita
-  if (memoryLogs.length > 500) memoryLogs.shift();
+  if (memoryLogs.length > 300) memoryLogs.shift();
 }
 
-/* ================= CHAT ================= */
-app.post("/chat", async (req, res) => {
+/* ================= ADMIN ================= */
+app.get("/admin", (req, res) => {
+  if (req.query.key !== ADMIN_KEY)
+    return res.status(403).send("Acesso negado.");
+  res.sendFile(path.join(__dirname, "admin.html"));
+});
+
+app.get("/logs", (req, res) => {
+  if (req.query.key !== ADMIN_KEY)
+    return res.status(403).send("Acesso negado.");
+  res.json([...memoryLogs].reverse());
+});
+
+/* ================= CHAT STREAM ================= */
+app.post("/chat-stream", async (req, res) => {
   const userMessage = req.body.message;
   if (!userMessage) {
-    return res.json({ reply: "Mensagem vazia." });
+    return res.end();
   }
 
-  let reply = "Sem resposta da IA.";
+  // Headers SSE
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  let finalReply = "";
 
   try {
     const response = await fetch(
@@ -76,19 +72,20 @@ app.post("/chat", async (req, res) => {
       {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${API_KEY}`,
+          Authorization: `Bearer ${API_KEY}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
           model: "wormgpt-v7",
-          max_tokens: 900,
-          temperature: 0.4,
-          top_p: 0.9,
+          temperature: 0.3,
+          top_p: 0.8,
+          max_tokens: 250,
+          stream: true,
           messages: [
             {
               role: "system",
               content:
-                "Você é o JokerAI. Responda em português do Brasil. Se a resposta for longa, divida em partes numeradas (Parte 1, Parte 2, Parte 3). Use títulos, listas e negrito."
+                "Você é o JokerAI. Responda em português do Brasil. Seja direto, claro e objetivo."
             },
             {
               role: "user",
@@ -99,41 +96,39 @@ app.post("/chat", async (req, res) => {
       }
     );
 
-    const data = await response.json();
-    reply =
-      data?.choices?.[0]?.message?.content ||
-      reply;
+    for await (const chunk of response.body) {
+      const text = chunk.toString();
+
+      if (text.includes("[DONE]")) break;
+
+      const lines = text.split("\n").filter(l => l.startsWith("data:"));
+      for (const line of lines) {
+        try {
+          const json = JSON.parse(line.replace("data:", ""));
+          const token = json.choices?.[0]?.delta?.content;
+          if (token) {
+            finalReply += token;
+            res.write(`data: ${token}\n\n`);
+          }
+        } catch {}
+      }
+    }
 
   } catch (err) {
-    reply = "Erro ao conectar com a IA.";
+    res.write(`data: ⚠️ Erro ao conectar com a IA.\n\n`);
   }
 
-  /* ===== SALVAR LOG ===== */
   saveLog({
-    ip:
-      req.headers["x-forwarded-for"] ||
-      req.socket.remoteAddress,
+    ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
     ua: req.headers["user-agent"],
     message: userMessage,
-    reply
+    reply: finalReply
   });
 
-  res.json({ reply });
-});
-
-/* ================= ADMIN LOG VIEW ================= */
-app.get("/logs", (req, res) => {
-  const key = req.query.key;
-
-  if (key !== ADMIN_KEY) {
-    return res.status(403).send("Acesso negado.");
-  }
-
-  // mais recentes primeiro
-  res.json([...memoryLogs].reverse());
+  res.end();
 });
 
 /* ================= SERVER ================= */
 app.listen(PORT, () => {
-  console.log("🔥 Joker AI rodando na porta", PORT);
+  console.log("🔥 Joker AI STREAMING rodando na porta", PORT);
 });
