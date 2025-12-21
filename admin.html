@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Joker AI ♠ Dashboard</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=Playfair+Display&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --gold:#d4b46a;
+  --gold-soft:#e6c87a;
+  --bg:#050302;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:#000;
+  color:#f3e6c8;
+  font-family:'Playfair Display',serif;
+}
+
+header{
+  padding:20px;
+  text-align:center;
+  font-family:'Cinzel',serif;
+  font-size:22px;
+  color:var(--gold);
+  border-bottom:1px solid rgba(212,180,106,.3);
+}
+
+.actions{
+  display:flex;
+  justify-content:center;
+  padding:16px;
+}
+
+button{
+  background:linear-gradient(135deg,var(--gold-soft),#9c7c2f);
+  border:none;
+  padding:12px 22px;
+  border-radius:20px;
+  cursor:pointer;
+  font-family:'Cinzel',serif;
+  color:#1b1208;
+  transition:.3s;
+}
+button:hover{transform:scale(1.05)}
+
+.logs{
+  max-width:900px;
+  margin:20px auto;
+  padding:0 16px 40px;
+}
+
+.log{
+  background:rgba(212,180,106,.08);
+  border:1px solid rgba(212,180,106,.25);
+  border-radius:16px;
+  padding:16px;
+  margin-bottom:16px;
+  animation:fade .3s ease;
+}
+
+.meta{
+  font-size:12px;
+  color:rgba(212,180,106,.85);
+  margin-bottom:10px;
+  font-family:'Cinzel',serif;
+}
+
+.block{
+  margin-bottom:10px;
+}
+
+.label{
+  font-size:11px;
+  color:var(--gold);
+  margin-bottom:4px;
+}
+
+.msg{
+  background:rgba(0,0,0,.35);
+  padding:10px 14px;
+  border-radius:12px;
+  font-size:14px;
+  line-height:1.5;
+}
+
+@keyframes fade{
+  from{opacity:0;transform:translateY(6px)}
+  to{opacity:1}
+}
+</style>
+</head>
+
+<body>
+
+<header>🃏 Joker AI ♠ — Dashboard</header>
+
+<div class="actions">
+  <button onclick="loadLogs()">Atualizar Logs</button>
+</div>
+
+<div class="logs" id="logs"></div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const key = params.get("key");
+
+async function loadLogs(){
+  const res = await fetch(`/logs?key=${key}`);
+  const data = await res.json();
+
+  const container = document.getElementById("logs");
+  container.innerHTML = "";
+
+  data.forEach(log=>{
+    const div = document.createElement("div");
+    div.className = "log";
+    div.innerHTML = `
+      <div class="meta">${log.time} • ${log.ip}</div>
+
+      <div class="block">
+        <div class="label">Mensagem do usuário</div>
+        <div class="msg">${log.message}</div>
+      </div>
+
+      <div class="block">
+        <div class="label">Resposta da IA</div>
+        <div class="msg">${log.reply}</div>
+      </div>
+
+      <div class="meta">${log.ua}</div>
+    `;
+    container.appendChild(div);
+  });
+}
+
+loadLogs();
+</script>
+
+</body>
+</html>
