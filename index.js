@@ -13,6 +13,23 @@ const ADMIN_KEY = process.env.ADMIN_KEY || "joker-admin-171";
 const PORT = process.env.PORT || 3000;
 const LOG_FILE = "./logs.txt";
 
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/* ===== DASHBOARD PAGE ===== */
+app.get("/admin", (req, res) => {
+  const key = req.query.key;
+
+  if (key !== ADMIN_KEY) {
+    return res.status(403).send("Acesso negado.");
+  }
+
+  res.sendFile(path.join(__dirname, "admin.html"));
+});
+
 /* ================= LOG SYSTEM ================= */
 let memoryLogs = [];
 
