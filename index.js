@@ -5,168 +5,138 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-/* ================= SETUP ================= */
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-const PORT = process.env.PORT || 3000;
+/* ================= CONFIG ================= */
+const API_KEYS = (process.env.WRMGPT_API_KEYS || "").split(",").filter(Boolean);
 const ADMIN_KEY = process.env.ADMIN_KEY || "joker-admin-171";
-const API_KEYS = (process.env.WRMGPT_API_KEYS || "")
-  .split(",")
-  .map(k => k.trim())
-  .filter(Boolean);
+const PORT = process.env.PORT || 3000;
+const LOG_FILE = "./logs.txt";
 
 if (!API_KEYS.length) {
-  console.error("❌ WRMGPT_API_KEYS não configurado");
+  console.error("❌ Nenhuma WRMGPT_API_KEYS definida");
 }
 
-/* ================= PATH ================= */
+/* ================= PATH FIX ================= */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /* ================= TOKEN ROTATION ================= */
-let tokenIndex = 0;
+let currentKeyIndex = 0;
+
 function getNextApiKey() {
-  const key = API_KEYS[tokenIndex];
-  tokenIndex = (tokenIndex + 1) % API_KEYS.length;
+  const key = API_KEYS[currentKeyIndex];
+  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
   return key;
 }
 
-/* ================= MEMORY ================= */
-const responses = {};   // respostas prontas
-const jobs = {};        // jobs em processamento
-const LOG_FILE = "./logs.txt";
+/* ================= LOG SYSTEM ================= */
+let memoryLogs = [];
 
-/* ================= LOG ================= */
-function saveLog({ ip, ua, message, reply, token }) {
+function saveLog({ ip, ua, message, reply, tokenIndex }) {
   const time = new Date().toLocaleString("pt-BR");
-  const log = `
-[${time}]
-Token: ${token}
+
+  const logText =
+`[${time}]
+Token: ${tokenIndex}
 IP: ${ip}
-UA: ${ua}
+User-Agent: ${ua}
 Mensagem: ${message}
 Resposta: ${reply}
--------------------------------
-`;
-  fs.appendFile(LOG_FILE, log, () => {});
+----------------------------------\n`;
+
+  fs.appendFile(LOG_FILE, logText, () => {});
+  memoryLogs.push({ time, ip, ua, message, reply, tokenIndex });
+
+  if (memoryLogs.length > 500) memoryLogs.shift();
 }
 
-/* ================= IA BACKGROUND ================= */
-async function generateAI(message, jobId) {
-  let reply = "Sem resposta da IA.";
-
-  for (let i = 0; i < API_KEYS.length; i++) {
-    const apiKey = getNextApiKey();
-
-    try {
-      const r = await fetch("https://api.wrmgpt.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${apiKey}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: "wormgpt-v7",
-          max_tokens: 350,
-          temperature: 0.3,
-          messages: [
-            {
-              role: "system",
-              content:
-                "Você é o JokerAI. Responda SEMPRE em português do Brasil. Seja direto, claro e evite textos longos."
-            },
-            {
-              role: "user",
-              content: message
-            }
-          ]
-        })
-      });
-
-      const data = await r.json();
-
-      if (data?.choices?.[0]?.message?.content) {
-        reply = data.choices[0].message.content;
-        break;
-      }
-
-    } catch (e) {
-      console.error("Erro token", i);
-    }
-  }
-
-  responses[jobId] = reply;
-  jobs[jobId].done = true;
-
-  saveLog({
-    ip: jobs[jobId].ip,
-    ua: jobs[jobId].ua,
-    message,
-    reply,
-    token: tokenIndex
-  });
-
-  // limpeza
-  setTimeout(() => {
-    delete responses[jobId];
-    delete jobs[jobId];
-  }, 5 * 60 * 1000);
-}
-
-/* ================= CHAT ================= */
-app.post("/chat", (req, res) => {
-  const message = req.body.message;
-  if (!message) {
-    return res.json({ reply: "Mensagem vazia." });
-  }
-
-  const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2);
-
-  jobs[jobId] = {
-    ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
-    ua: req.headers["user-agent"],
-    done: false
-  };
-
-  // resposta imediata
-  res.json({
-    reply: "✔️ Mensagem recebida. Gerando resposta…",
-    jobId
-  });
-
-  // roda em background
-  generateAI(message, jobId);
-});
-
-/* ================= RESULT ================= */
-app.get("/chat/result/:id", (req, res) => {
-  const id = req.params.id;
-
-  if (!jobs[id]) {
-    return res.json({ status: "expired" });
-  }
-
-  if (!jobs[id].done) {
-    return res.json({ status: "processing" });
-  }
-
-  return res.json({
-    status: "done",
-    reply: responses[id]
-  });
-});
-
-/* ================= ADMIN ================= */
+/* ================= DASHBOARD ================= */
 app.get("/admin", (req, res) => {
   if (req.query.key !== ADMIN_KEY) {
     return res.status(403).send("Acesso negado.");
   }
-  res.send("Joker AI rodando ✔️");
+  res.sendFile(path.join(__dirname, "admin.html"));
 });
 
-/* ================= START ================= */
+/* ================= CHAT ================= */
+app.post("/chat", async (req, res) => {
+  const userMessage = req.body.message;
+  if (!userMessage) {
+    return res.json({ reply: "Mensagem vazia." });
+  }
+
+  let reply = "Sem resposta da IA.";
+  let usedTokenIndex = currentKeyIndex;
+
+  for (let attempt = 0; attempt < API_KEYS.length; attempt++) {
+    const apiKey = getNextApiKey();
+    usedTokenIndex = currentKeyIndex;
+
+    try {
+      const response = await fetch(
+        "https://api.wrmgpt.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "wormgpt-v7",
+            max_tokens: 900,
+            temperature: 0.4,
+            top_p: 0.9,
+            messages: [
+              {
+                role: "system",
+                content:
+                  "Você é o JokerAI. Responda em português do Brasil. Se a resposta for longa, divida em partes numeradas (Parte 1, Parte 2, Parte 3). Use títulos, listas e negrito."
+              },
+              {
+                role: "user",
+                content: userMessage
+              }
+            ]
+          })
+        }
+      );
+
+      const data = await response.json();
+
+      if (data?.choices?.[0]?.message?.content) {
+        reply = data.choices[0].message.content;
+        break; // ✅ sucesso → para o loop
+      }
+
+    } catch (err) {
+      console.error("Erro com token", usedTokenIndex);
+    }
+  }
+
+  /* ===== SALVAR LOG ===== */
+  saveLog({
+    ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
+    ua: req.headers["user-agent"],
+    message: userMessage,
+    reply,
+    tokenIndex: usedTokenIndex
+  });
+
+  res.json({ reply });
+});
+
+/* ================= LOG VIEW ================= */
+app.get("/logs", (req, res) => {
+  if (req.query.key !== ADMIN_KEY) {
+    return res.status(403).send("Acesso negado.");
+  }
+  res.json([...memoryLogs].reverse());
+});
+
+/* ================= SERVER ================= */
 app.listen(PORT, () => {
   console.log("🔥 Joker AI rodando na porta", PORT);
 });
