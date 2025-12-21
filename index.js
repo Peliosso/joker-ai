@@ -3,8 +3,10 @@ import fetch from "node-fetch";
 import cors from "cors";
 import fs from "fs";
 import path from "path";
+import https from "https";
 import { fileURLToPath } from "url";
 
+/* ================= APP ================= */
 const app = express();
 app.use(express.json());
 app.use(cors());
@@ -23,112 +25,110 @@ if (!API_KEYS.length) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/* ================= TOKEN ROTATION ================= */
-let currentKeyIndex = 0;
-
-function getNextApiKey() {
-  const key = API_KEYS[currentKeyIndex];
-  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
-  return key;
-}
+/* ================= HTTPS KEEP ALIVE ================= */
+const agent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 100
+});
 
 /* ================= LOG SYSTEM ================= */
 let memoryLogs = [];
 
-function saveLog({ ip, ua, message, reply, tokenIndex }) {
+function saveLog({ ip, ua, message, reply }) {
   const time = new Date().toLocaleString("pt-BR");
 
   const logText =
 `[${time}]
-Token: ${tokenIndex}
 IP: ${ip}
-User-Agent: ${ua}
+UA: ${ua}
 Mensagem: ${message}
 Resposta: ${reply}
-----------------------------------\n`;
+------------------------------\n`;
 
   fs.appendFile(LOG_FILE, logText, () => {});
-  memoryLogs.push({ time, ip, ua, message, reply, tokenIndex });
+  memoryLogs.push({ time, ip, ua, message, reply });
 
   if (memoryLogs.length > 500) memoryLogs.shift();
 }
 
-/* ================= DASHBOARD ================= */
-app.get("/admin", (req, res) => {
-  if (req.query.key !== ADMIN_KEY) {
-    return res.status(403).send("Acesso negado.");
-  }
-  res.sendFile(path.join(__dirname, "admin.html"));
-});
+/* ================= IA CALL (RÁPIDA) ================= */
+async function callAI(apiKey, message) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000); // 5s máx
 
-/* ================= CHAT ================= */
+  try {
+    const response = await fetch(
+      "https://api.wrmgpt.com/v1/chat/completions",
+      {
+        agent,
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "wormgpt-v7",
+          max_tokens: 300, // 🚀 velocidade
+          temperature: 0.4,
+          messages: [
+            {
+              role: "system",
+              content:
+                "Você é o JokerAI. Responda sempre em português do Brasil. Seja direto, claro e organizado."
+            },
+            { role: "user", content: message }
+          ]
+        }),
+        signal: controller.signal
+      }
+    );
+
+    const data = await response.json();
+    return data?.choices?.[0]?.message?.content || null;
+
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/* ================= CHAT (PARALELO) ================= */
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
   if (!userMessage) {
     return res.json({ reply: "Mensagem vazia." });
   }
 
-  let reply = "Sem resposta da IA.";
-  let usedTokenIndex = currentKeyIndex;
+  const calls = API_KEYS.map(key => callAI(key, userMessage));
+  let reply;
 
-  for (let attempt = 0; attempt < API_KEYS.length; attempt++) {
-    const apiKey = getNextApiKey();
-    usedTokenIndex = currentKeyIndex;
-
-    try {
-      const response = await fetch(
-        "https://api.wrmgpt.com/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: "wormgpt-v7",
-            max_tokens: 900,
-            temperature: 0.4,
-            top_p: 0.9,
-            messages: [
-              {
-                role: "system",
-                content:
-                  "Você é o JokerAI. Responda em português do Brasil. Se a resposta for longa, divida em partes numeradas (Parte 1, Parte 2, Parte 3). Use títulos, listas e negrito."
-              },
-              {
-                role: "user",
-                content: userMessage
-              }
-            ]
-          })
-        }
-      );
-
-      const data = await response.json();
-
-      if (data?.choices?.[0]?.message?.content) {
-        reply = data.choices[0].message.content;
-        break; // ✅ sucesso → para o loop
-      }
-
-    } catch (err) {
-      console.error("Erro com token", usedTokenIndex);
-    }
+  try {
+    // ⚡ primeira resposta válida vence
+    reply = await Promise.any(calls);
+  } catch {
+    reply = "⚠️ IA temporariamente indisponível.";
   }
 
-  /* ===== SALVAR LOG ===== */
   saveLog({
     ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
     ua: req.headers["user-agent"],
     message: userMessage,
-    reply,
-    tokenIndex: usedTokenIndex
+    reply
   });
 
   res.json({ reply });
 });
 
-/* ================= LOG VIEW ================= */
+/* ================= ADMIN ================= */
+app.get("/admin", (req, res) => {
+  if (req.query.key !== ADMIN_KEY) {
+    return res.status(403).send("Acesso negado.");
+  }
+  res.send("Painel ativo.");
+});
+
+/* ================= LOGS ================= */
 app.get("/logs", (req, res) => {
   if (req.query.key !== ADMIN_KEY) {
     return res.status(403).send("Acesso negado.");
@@ -138,5 +138,5 @@ app.get("/logs", (req, res) => {
 
 /* ================= SERVER ================= */
 app.listen(PORT, () => {
-  console.log("🔥 Joker AI rodando na porta", PORT);
+  console.log("🔥 Joker AI ULTRA RÁPIDO rodando na porta", PORT);
 });
