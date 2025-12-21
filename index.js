@@ -1,3 +1,5 @@
+import path from "path";
+import { fileURLToPath } from "url";
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
@@ -15,6 +17,9 @@ const LOG_FILE = "./logs.txt";
 
 import path from "path";
 import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
