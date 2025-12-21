@@ -1,16 +1,52 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
+import fs from "fs";
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
+/* ================= CONFIG ================= */
 const API_KEY = process.env.WRMGPT_API_KEY;
+const ADMIN_KEY = process.env.ADMIN_KEY || "joker-admin-171";
+const PORT = process.env.PORT || 3000;
+const LOG_FILE = "./logs.txt";
 
+/* ================= LOG SYSTEM ================= */
+let memoryLogs = [];
+
+function saveLog({ ip, ua, message, reply }) {
+  const time = new Date().toLocaleString("pt-BR");
+
+  const logText =
+`[${time}]
+IP: ${ip}
+User-Agent: ${ua}
+Mensagem: ${message}
+Resposta: ${reply}
+----------------------------------\n`;
+
+  // salva em arquivo
+  fs.appendFile(LOG_FILE, logText, err => {
+    if (err) console.error("Erro ao salvar log:", err);
+  });
+
+  // salva em memória (para painel)
+  memoryLogs.push({ time, ip, ua, message, reply });
+
+  // evita memória infinita
+  if (memoryLogs.length > 500) memoryLogs.shift();
+}
+
+/* ================= CHAT ================= */
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
-  if (!userMessage) return res.json({ reply: "Mensagem vazia." });
+  if (!userMessage) {
+    return res.json({ reply: "Mensagem vazia." });
+  }
+
+  let reply = "Sem resposta da IA.";
 
   try {
     const response = await fetch(
@@ -23,8 +59,8 @@ app.post("/chat", async (req, res) => {
         },
         body: JSON.stringify({
           model: "wormgpt-v7",
-          max_tokens: 900,            // 🔥 rápido
-          temperature: 0.4,           // 🔥 responde direto
+          max_tokens: 900,
+          temperature: 0.4,
           top_p: 0.9,
           messages: [
             {
@@ -42,20 +78,40 @@ app.post("/chat", async (req, res) => {
     );
 
     const data = await response.json();
-    const reply =
+    reply =
       data?.choices?.[0]?.message?.content ||
-      "Sem resposta da IA.";
-
-    res.json({ reply });
+      reply;
 
   } catch (err) {
-    res.status(500).json({
-      reply: "Erro ao conectar com a IA.",
-      error: err.message
-    });
+    reply = "Erro ao conectar com a IA.";
   }
+
+  /* ===== SALVAR LOG ===== */
+  saveLog({
+    ip:
+      req.headers["x-forwarded-for"] ||
+      req.socket.remoteAddress,
+    ua: req.headers["user-agent"],
+    message: userMessage,
+    reply
+  });
+
+  res.json({ reply });
 });
 
-app.listen(process.env.PORT || 3000);
-  console.log("🔥 Joker AI rodando na porta", PORT)
-);
+/* ================= ADMIN LOG VIEW ================= */
+app.get("/logs", (req, res) => {
+  const key = req.query.key;
+
+  if (key !== ADMIN_KEY) {
+    return res.status(403).send("Acesso negado.");
+  }
+
+  // mais recentes primeiro
+  res.json([...memoryLogs].reverse());
+});
+
+/* ================= SERVER ================= */
+app.listen(PORT, () => {
+  console.log("🔥 Joker AI rodando na porta", PORT);
+});
