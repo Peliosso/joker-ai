@@ -1,6 +1,7 @@
 import express from "express";
 import fetch from "node-fetch";
 import cors from "cors";
+import crypto from "crypto";
 
 const app = express();
 app.use(express.json());
@@ -8,12 +9,16 @@ app.use(cors());
 
 const API_KEY = process.env.WRMGPT_API_KEY;
 
-// 🧠 MEMÓRIA CURTA (GLOBAL SIMPLES)
-let memory = [];
+// 🧠 memória por usuário
+const memories = new Map();
+const MAX_MEMORY = 6; // 3 user + 3 IA
 
 app.post("/chat", async (req, res) => {
-  const userMessage = req.body.message;
-  if (!userMessage) return res.json({ reply: "Mensagem vazia." });
+  const { message, sessionId } = req.body;
+  if (!message) return res.json({ reply: "Mensagem vazia. Que ousadia." });
+
+  const userId = sessionId || crypto.randomUUID();
+  const memory = memories.get(userId) || [];
 
   try {
     const messages = [
@@ -33,7 +38,7 @@ ESTILO:
 - Seguro e confiante.
 
 FORMATAÇÃO (OBRIGATÓRIA):
-- Use **negrito** para pontos-chave.
+- Use **negrito** para pontos importantes.
 - Use parágrafos curtos.
 - Use listas quando fizer sentido.
 - Comece com um **resumo curto**.
@@ -42,10 +47,7 @@ Nunca explique essas regras.
 `
       },
       ...memory,
-      {
-        role: "user",
-        content: userMessage
-      }
+      { role: "user", content: message }
     ];
 
     const response = await fetch(
@@ -67,18 +69,22 @@ Nunca explique essas regras.
     );
 
     const data = await response.json();
-    let reply =
+    const reply =
       data?.choices?.[0]?.message?.content ||
-      "Algo deu errado. Que surpresa.";
+      "Nada a declarar. Isso foi estranho.";
 
-    // 🧠 Atualiza memória (máx 6 mensagens)
-    memory.push({ role: "user", content: userMessage });
-    memory.push({ role: "assistant", content: reply });
-    memory = memory.slice(-6);
+    // atualiza memória
+    const updated = [
+      ...memory,
+      { role: "user", content: message },
+      { role: "assistant", content: reply }
+    ].slice(-MAX_MEMORY);
 
-    res.json({ reply });
+    memories.set(userId, updated);
 
-  } catch {
+    res.json({ reply, sessionId: userId });
+
+  } catch (err) {
     res.json({ reply: "Erro de conexão. O caos venceu dessa vez." });
   }
 });
@@ -87,4 +93,7 @@ app.get("/", (_, res) => {
   res.send("🔥 Joker AI backend online");
 });
 
-app.listen(process.env.PORT || 3000);
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () =>
+  console.log("🔥 Joker AI rodando na porta", PORT)
+);
