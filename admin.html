@@ -1,237 +1,135 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<title>Joker AI ♠ Admin</title>
+import express from "express";
+import fetch from "node-fetch";
+import cors from "cors";
 
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600&family=Playfair+Display&display=swap" rel="stylesheet">
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-<style>
-:root{
-  --gold:#d4b46a;
-  --gold-soft:#e6c87a;
-  --bg:#050302;
-}
+/* ================= CONFIG ================= */
 
-*{box-sizing:border-box}
+const PORT = process.env.PORT || 3000;
+const API_KEY = process.env.WRMGPT_API_KEY; // sua key da IA
+const ADMIN_KEY = process.env.ADMIN_KEY;   // key do admin
 
-body{
-  margin:0;
-  background:#000;
-  color:#f3e6c8;
-  font-family:'Playfair Display',serif;
-}
+const AI_URL = "https://api.wrmgpt.com/v1/chat"; 
+// ajuste se sua API for outra
 
-header{
-  padding:22px;
-  text-align:center;
-  font-family:'Cinzel',serif;
-  font-size:22px;
-  color:var(--gold);
-  border-bottom:1px solid rgba(212,180,106,.3);
-}
+/* ================= STATUS GLOBAL ================= */
 
-.status-bar{
-  text-align:center;
-  margin-top:10px;
-  font-family:'Cinzel',serif;
-  font-size:13px;
-}
+let SYSTEM_STATUS = "online"; 
+// online | offline | maintenance
 
-.status.online{color:#7CFF7C}
-.status.offline{color:#FF7C7C}
-.status.maintenance{color:#FFD27C}
+app.get("/status", (req, res) => {
+  res.json({ status: SYSTEM_STATUS });
+});
 
-/* actions */
-.actions{
-  display:flex;
-  flex-wrap:wrap;
-  gap:12px;
-  justify-content:center;
-  padding:18px;
-}
+app.post("/status/set", (req, res) => {
+  const { key, status } = req.body;
 
-button{
-  background:linear-gradient(135deg,var(--gold-soft),#9c7c2f);
-  border:none;
-  padding:12px 20px;
-  border-radius:20px;
-  cursor:pointer;
-  font-family:'Cinzel',serif;
-  color:#1b1208;
-  transition:.3s;
-}
-button:hover{transform:scale(1.05)}
-
-.logs{
-  max-width:960px;
-  margin:20px auto 40px;
-  padding:0 16px;
-}
-
-.log{
-  background:rgba(212,180,106,.08);
-  border:1px solid rgba(212,180,106,.25);
-  border-radius:16px;
-  padding:16px;
-  margin-bottom:16px;
-  animation:fade .3s ease;
-}
-
-.meta{
-  font-size:12px;
-  color:rgba(212,180,106,.85);
-  margin-bottom:10px;
-  font-family:'Cinzel',serif;
-}
-
-.block{
-  margin-bottom:10px;
-}
-
-.label{
-  font-size:11px;
-  color:var(--gold);
-  margin-bottom:4px;
-}
-
-.msg{
-  background:rgba(0,0,0,.35);
-  padding:10px 14px;
-  border-radius:12px;
-  font-size:14px;
-  line-height:1.5;
-}
-
-@keyframes fade{
-  from{opacity:0;transform:translateY(6px)}
-  to{opacity:1}
-}
-</style>
-</head>
-
-<body>
-
-<header>
-  🃏 Joker AI ♠ — Admin
-  <div class="status-bar">
-    Status atual:
-    <span id="statusLabel" class="status">●</span>
-  </div>
-</header>
-
-<div class="actions">
-  <button onclick="setStatus('online')">🟢 Online</button>
-  <button onclick="setStatus('maintenance')">🟡 Manutenção</button>
-  <button onclick="setStatus('offline')">🔴 Offline</button>
-  <button onclick="loadLogs()">🔄 Atualizar Logs</button>
-</div>
-
-<div class="logs" id="logs"></div>
-
-<script>
-/* ================= STATUS ================= */
-
-const STATUS_KEY = "joker_status";
-const statusLabel = document.getElementById("statusLabel");
-
-function setStatus(type){
-  localStorage.setItem(STATUS_KEY, type);
-  updateStatusUI(type);
-  logAdmin(`Status alterado para ${type.toUpperCase()}`);
-}
-
-function getStatus(){
-  return localStorage.getItem(STATUS_KEY) || "online";
-}
-
-function updateStatusUI(type){
-  let text = "● ";
-  let cls = "status ";
-
-  if(type === "online"){
-    text += "Online";
-    cls += "online";
-  }
-  if(type === "offline"){
-    text += "Offline";
-    cls += "offline";
-  }
-  if(type === "maintenance"){
-    text += "Manutenção";
-    cls += "maintenance";
+  if (key !== ADMIN_KEY) {
+    return res.status(403).json({ error: "Acesso negado" });
   }
 
-  statusLabel.textContent = text;
-  statusLabel.className = cls;
-}
+  if (!["online", "offline", "maintenance"].includes(status)) {
+    return res.status(400).json({ error: "Status inválido" });
+  }
 
-updateStatusUI(getStatus());
+  SYSTEM_STATUS = status;
+  res.json({ ok: true, status });
+});
 
 /* ================= LOGS ================= */
 
-function logAdmin(text){
-  const logs = JSON.parse(localStorage.getItem("joker_admin_logs") || "[]");
+const LOGS = [];
 
-  logs.unshift({
-    time: new Date().toLocaleString(),
-    ip: "ADMIN",
-    message: "Painel Administrativo",
-    reply: text,
-    ua: navigator.userAgent
-  });
+app.get("/logs", (req, res) => {
+  const { key } = req.query;
 
-  localStorage.setItem("joker_admin_logs", JSON.stringify(logs));
-}
-
-async function loadLogs(){
-  const container = document.getElementById("logs");
-  container.innerHTML = "";
-
-  let serverLogs = [];
-
-  // tenta carregar logs do backend (se existir)
-  try{
-    const params = new URLSearchParams(window.location.search);
-    const key = params.get("key");
-    if(key){
-      const res = await fetch(`/logs?key=${key}`);
-      serverLogs = await res.json();
-    }
-  }catch{}
-
-  const adminLogs = JSON.parse(localStorage.getItem("joker_admin_logs") || "[]");
-  const all = [...adminLogs, ...serverLogs];
-
-  if(all.length === 0){
-    container.innerHTML = "<div class='log'>Nenhum log encontrado.</div>";
-    return;
+  if (key !== ADMIN_KEY) {
+    return res.status(403).json({ error: "Acesso negado" });
   }
 
-  all.forEach(log=>{
-    const div = document.createElement("div");
-    div.className = "log";
-    div.innerHTML = `
-      <div class="meta">${log.time} • ${log.ip}</div>
+  res.json(LOGS.slice(-200).reverse());
+});
 
-      <div class="block">
-        <div class="label">Mensagem</div>
-        <div class="msg">${log.message}</div>
-      </div>
+/* ================= CHAT ================= */
 
-      <div class="block">
-        <div class="label">Detalhe</div>
-        <div class="msg">${log.reply}</div>
-      </div>
+app.post("/chat", async (req, res) => {
+  const { message } = req.body;
+  const ip =
+    req.headers["x-forwarded-for"] ||
+    req.socket.remoteAddress ||
+    "unknown";
 
-      <div class="meta">${log.ua}</div>
-    `;
-    container.appendChild(div);
-  });
-}
+  if (!message) {
+    return res.json({ reply: "Mensagem vazia." });
+  }
 
-loadLogs();
-</script>
+  if (SYSTEM_STATUS === "offline") {
+    return res.json({
+      reply: "♠ O Joker AI está offline no momento."
+    });
+  }
 
-</body>
-</html>
+  if (SYSTEM_STATUS === "maintenance") {
+    return res.json({
+      reply: "♠ O Joker AI está em manutenção. Volte mais tarde."
+    });
+  }
+
+  try {
+    const r = await fetch(AI_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${API_KEY}`
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            role: "system",
+            content:
+              "Você é o Joker AI, um assistente elegante, direto e premium."
+          },
+          {
+            role: "user",
+            content: message
+          }
+        ]
+      })
+    });
+
+    const data = await r.json();
+    const reply =
+      data.reply ||
+      data.choices?.[0]?.message?.content ||
+      "Sem resposta no momento.";
+
+    LOGS.push({
+      time: new Date().toLocaleString("pt-BR"),
+      ip,
+      message,
+      reply,
+      ua: req.headers["user-agent"]
+    });
+
+    res.json({ reply });
+  } catch (e) {
+    res.json({
+      reply: "Erro ao conectar com a IA."
+    });
+  }
+});
+
+/* ================= HEALTH ================= */
+
+app.get("/", (req, res) => {
+  res.send("🃏 Joker AI Backend Online");
+});
+
+/* ================= START ================= */
+
+app.listen(PORT, () => {
+  console.log("🃏 Joker AI rodando na porta " + PORT);
+});
