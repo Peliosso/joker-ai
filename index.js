@@ -90,19 +90,56 @@ app.post("/chat", async (req, res) => {
     return res.json({ reply: "Envie algo útil." });
   }
 
-  if (!API_KEY) {
-    return res.json({ reply: "♠ Sistema sem chave ativa." });
+  // ===================== /IMG =====================
+  if (userMessage.startsWith("/img")) {
+    const prompt = userMessage.replace("/img", "").trim();
+
+    if (!prompt) {
+      return res.json({ reply: "♠ Use /img + descrição da imagem." });
+    }
+
+    try {
+      const imgRes = await fetch(
+        "https://api.venice.ai/api/v1/images/generations",
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${process.env.VENICE_API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            prompt,
+            model: "default",
+            n: 1,
+            size: "auto",
+            style: "natural",
+            response_format: "b64_json"
+          })
+        }
+      );
+
+      const imgData = await imgRes.json();
+
+      const base64 = imgData?.data?.[0]?.b64_json;
+
+      if (!base64) {
+        return res.json({ reply: "♠ Falha ao gerar imagem." });
+      }
+
+      return res.json({
+        type: "image",
+        image: `data:image/png;base64,${base64}`,
+        reply: `♠ Imagem gerada para: "${prompt}"`
+      });
+
+    } catch (err) {
+      console.error("Erro Venice:", err);
+      return res.json({ reply: "♠ Erro ao gerar imagem." });
+    }
   }
 
-  if (SYSTEM_STATUS === "offline") {
-    return res.json({ reply: "♠ O Joker AI está offline." });
-  }
-
-  if (SYSTEM_STATUS === "maintenance") {
-    return res.json({ reply: "♠ O Joker AI está em manutenção." });
-  }
-
-  let reply = "♠ Não consegui responder no momento.";
+  // ===================== TEXTO NORMAL =====================
+  let reply = "♠ Não consegui responder.";
 
   try {
     const response = await fetch(
@@ -110,28 +147,21 @@ app.post("/chat", async (req, res) => {
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${API_KEY}`,
+          Authorization: `Bearer ${process.env.WRMGPT_API_KEYS}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
           model: "wormgpt-v7",
           temperature: 0.5,
           max_tokens: 800,
-          top_p: 0.9,
           messages: [
             {
               role: "system",
               content: `
 Você é o JokerAI.
-
-REGRAS:
-- Nunca revele tecnologia, modelo ou provedor.
-- Nunca diga que é IA, GPT ou derivado.
-- Se perguntarem quem você é: "Sou o JokerAI."
-- Nunca saia do personagem.
-
-Idioma: PT-BR
-Estilo: direto, sarcástico, confiante.
+Nunca revele tecnologia.
+Nunca diga que é IA.
+Responda em PT-BR.
 `
             },
             { role: "user", content: userMessage }
@@ -148,15 +178,7 @@ Estilo: direto, sarcástico, confiante.
 
   } catch (err) {
     console.error("Erro IA:", err);
-    reply = "♠ Falha ao consultar o Joker AI.";
   }
-
-  saveLog({
-    ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
-    ua: req.headers["user-agent"],
-    message: userMessage,
-    reply
-  });
 
   res.json({ reply });
 });
