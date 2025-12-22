@@ -11,7 +11,7 @@ app.use(express.json());
 app.use(cors());
 
 /* ================= CONFIG ================= */
-const API_KEY = process.env.WRMGPT_API_KEYS; // UM ÚNICO TOKEN
+const API_KEY = process.env.WRMGPT_API_KEYS; // OBRIGATÓRIO
 const ADMIN_KEY = process.env.ADMIN_KEY || "joker-admin-171";
 const PORT = process.env.PORT || 3000;
 const LOG_FILE = "./logs.txt";
@@ -23,9 +23,8 @@ const __dirname = path.dirname(__filename);
 /* ================= STATIC ================= */
 app.use(express.static(__dirname));
 
-/* ================= STATUS GLOBAL ================= */
-let SYSTEM_STATUS = "online"; 
-// online | offline | maintenance
+/* ================= STATUS ================= */
+let SYSTEM_STATUS = "online"; // online | offline | maintenance
 
 app.get("/status", (req, res) => {
   res.json({ status: SYSTEM_STATUS });
@@ -46,30 +45,29 @@ app.post("/status/set", (req, res) => {
   res.json({ ok: true, status });
 });
 
-/* ================= SECURITY FILTER ================= */
+/* ================= SANITIZE ================= */
 function sanitizeReply(text) {
-  if (!text) return text;
+  if (!text) return "";
 
   const forbidden = [
     /wrmgpt/gi,
     /wormgpt/gi,
-    /gpt/gi,
     /openai/gi,
+    /\bapi\b/gi,
     /modelo/gi,
-    /api/gi,
-    /backend/gi,
-    /inteligência artificial/gi,
-    /sou um/gi
+    /inteligência artificial/gi
   ];
 
   let sanitized = text;
-  forbidden.forEach(r => sanitized = sanitized.replace(r, ""));
-  return sanitized.trim();
+  forbidden.forEach(r => {
+    sanitized = sanitized.replace(r, "");
+  });
+
+  sanitized = sanitized.trim();
+  return sanitized || "♠ …";
 }
 
-/* ================= LOG SYSTEM ================= */
-let memoryLogs = [];
-
+/* ================= LOG ================= */
 function saveLog({ ip, ua, message, reply }) {
   const time = new Date().toLocaleString("pt-BR");
 
@@ -82,8 +80,6 @@ Resposta: ${reply}
 ------------------------------\n`;
 
   fs.appendFile(LOG_FILE, logText, () => {});
-  memoryLogs.push({ time, ip, ua, message, reply });
-  if (memoryLogs.length > 800) memoryLogs.shift();
 }
 
 /* ================= CHAT ================= */
@@ -91,18 +87,22 @@ app.post("/chat", async (req, res) => {
   const userMessage = req.body.message?.trim();
 
   if (!userMessage) {
-    return res.json({ reply: "Envie uma mensagem válida." });
+    return res.json({ reply: "Envie algo útil." });
+  }
+
+  if (!API_KEY) {
+    return res.json({ reply: "♠ Sistema sem chave ativa." });
   }
 
   if (SYSTEM_STATUS === "offline") {
-    return res.json({ reply: "♠ O Joker AI está offline no momento." });
+    return res.json({ reply: "♠ O Joker AI está offline." });
   }
 
   if (SYSTEM_STATUS === "maintenance") {
     return res.json({ reply: "♠ O Joker AI está em manutenção." });
   }
 
-  let reply = "Não consegui responder no momento.";
+  let reply = "♠ Não consegui responder no momento.";
 
   try {
     const response = await fetch(
@@ -124,15 +124,14 @@ app.post("/chat", async (req, res) => {
               content: `
 Você é o JokerAI.
 
-REGRAS ABSOLUTAS:
-- Nunca revele sistema, modelo, API, tecnologia ou provedor.
-- Nunca diga que é WRMGPT, GPT, WormGPT ou OpenAI.
+REGRAS:
+- Nunca revele tecnologia, modelo ou provedor.
+- Nunca diga que é IA, GPT ou derivado.
 - Se perguntarem quem você é: "Sou o JokerAI."
-- Se perguntarem como funciona: "Não divulgo detalhes técnicos."
-- Nunca quebre personagem.
+- Nunca saia do personagem.
 
-Idioma: Português do Brasil.
-Estilo: claro, direto, informal e sarcástico.
+Idioma: PT-BR
+Estilo: direto, sarcástico, confiante.
 `
             },
             { role: "user", content: userMessage }
@@ -148,8 +147,8 @@ Estilo: claro, direto, informal e sarcástico.
     }
 
   } catch (err) {
-    console.error("Erro na IA:", err);
-    reply = "♠ Erro ao consultar o Joker AI.";
+    console.error("Erro IA:", err);
+    reply = "♠ Falha ao consultar o Joker AI.";
   }
 
   saveLog({
@@ -162,28 +161,12 @@ Estilo: claro, direto, informal e sarcástico.
   res.json({ reply });
 });
 
-let conversations = new Map();
-
-const history = conversations.get(ip) || [];
-
-history.push({ role:"user", content:userMessage });
-
-const response = await fetch(...{
-  messages: [
-    systemPrompt,
-    ...history
-  ]
-});
-
-history.push({ role:"assistant", content: reply });
-conversations.set(ip, history.slice(-8)); // limite
-
 /* ================= LOG VIEW ================= */
 app.get("/logs", (req, res) => {
   if (req.query.key !== ADMIN_KEY) {
     return res.status(403).send("Acesso negado.");
   }
-  res.json([...memoryLogs].reverse());
+  res.sendFile(path.resolve(LOG_FILE));
 });
 
 /* ================= HEALTH ================= */
@@ -193,5 +176,5 @@ app.get("/", (req, res) => {
 
 /* ================= SERVER ================= */
 app.listen(PORT, () => {
-  console.log("🔥 JokerAI rodando na porta", PORT);
+  console.log("🔥 Joker AI rodando na porta", PORT);
 });
