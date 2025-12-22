@@ -84,11 +84,30 @@ Resposta: ${reply}
 
 /* ================= CHAT ================= */
 app.post("/chat", async (req, res) => {
-  const userMessage = req.body.message?.trim();
+  try {
+    const { message } = req.body;
 
-  if (!userMessage) {
-    return res.json({ reply: "Envie algo útil." });
+    if (!message) {
+      return res.json({
+        reply: "♠ Mensagem vazia. Digite algo."
+      });
+    }
+
+    // decide se é imagem ou texto
+    if (isImageRequest(message)) {
+      return await handleImage(message, res);
+    }
+
+    return await handleText(message, res);
+
+  } catch (err) {
+    console.error("🔥 ERRO GERAL:", err);
+
+    return res.json({
+      reply: "♠ O sistema está instável agora. Tente novamente."
+    });
   }
+});
 
   // ===================== /IMG =====================
   // ===================== /IMG =====================
@@ -144,6 +163,11 @@ if (userMessage.startsWith("/img")) {
     return res.json({ reply: "♠ Erro ao conectar com Venice." });
   }
 }
+
+function isImageRequest(text) {
+  return /(imagem|foto|desenho|ilustra|criar imagem|gera imagem)/i.test(text);
+}
+
   // ===================== TEXTO NORMAL =====================
   let reply = "♠ Não consegui responder.";
 
