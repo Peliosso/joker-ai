@@ -16,17 +16,38 @@ const ADMIN_KEY = process.env.ADMIN_KEY || "joker-admin-171";
 const PORT = process.env.PORT || 3000;
 const LOG_FILE = "./logs.txt";
 
-if (!API_KEYS.length) {
-  console.error("❌ Nenhuma WRMGPT_API_KEYS definida");
-}
-
 /* ================= PATH ================= */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/* ================= STATIC ================= */
+app.use(express.static(__dirname));
+
+/* ================= STATUS GLOBAL ================= */
+let SYSTEM_STATUS = "online"; 
+// online | offline | maintenance
+
+app.get("/status", (req, res) => {
+  res.json({ status: SYSTEM_STATUS });
+});
+
+app.post("/status/set", (req, res) => {
+  const { key, status } = req.body;
+
+  if (key !== ADMIN_KEY) {
+    return res.status(403).json({ error: "Acesso negado" });
+  }
+
+  if (!["online", "offline", "maintenance"].includes(status)) {
+    return res.status(400).json({ error: "Status inválido" });
+  }
+
+  SYSTEM_STATUS = status;
+  res.json({ ok: true, status });
+});
+
 /* ================= TOKEN ROTATION ================= */
 let currentKeyIndex = 0;
-
 function getNextApiKey() {
   const key = API_KEYS[currentKeyIndex];
   currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
@@ -74,19 +95,20 @@ Resposta: ${reply}
   if (memoryLogs.length > 500) memoryLogs.shift();
 }
 
-/* ================= ADMIN ================= */
-app.get("/admin", (req, res) => {
-  if (req.query.key !== ADMIN_KEY) {
-    return res.status(403).send("Acesso negado.");
-  }
-  res.sendFile(path.join(__dirname, "admin.html"));
-});
-
 /* ================= CHAT ================= */
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message?.trim();
+
   if (!userMessage) {
     return res.json({ reply: "Envie uma mensagem válida." });
+  }
+
+  if (SYSTEM_STATUS === "offline") {
+    return res.json({ reply: "♠ O Joker AI está offline no momento." });
+  }
+
+  if (SYSTEM_STATUS === "maintenance") {
+    return res.json({ reply: "♠ O Joker AI está em manutenção." });
   }
 
   let reply = "Não consegui responder no momento.";
@@ -125,8 +147,6 @@ REGRAS ABSOLUTAS:
 
 Idioma: Português do Brasil.
 Estilo: Claro, direto, informal, sarcástico.
-Se a resposta for longa, divida em partes.
-Use títulos, listas e **negrito** quando útil.
 `
               },
               { role: "user", content: userMessage }
@@ -164,6 +184,11 @@ app.get("/logs", (req, res) => {
     return res.status(403).send("Acesso negado.");
   }
   res.json([...memoryLogs].reverse());
+});
+
+/* ================= HEALTH ================= */
+app.get("/", (req, res) => {
+  res.send("🃏 Joker AI Backend Online");
 });
 
 /* ================= SERVER ================= */
