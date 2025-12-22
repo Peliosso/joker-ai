@@ -4,7 +4,6 @@ import cors from "cors";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import AbortController from "abort-controller";
 
 /* ================= APP ================= */
 const app = express();
@@ -12,7 +11,7 @@ app.use(express.json());
 app.use(cors());
 
 /* ================= CONFIG ================= */
-const API_KEYS = (process.env.WRMGPT_API_KEYS || "").split(",").filter(Boolean);
+const API_KEY = process.env.WRMGPT_API_KEY; // UM ÚNICO TOKEN
 const ADMIN_KEY = process.env.ADMIN_KEY || "joker-admin-171";
 const PORT = process.env.PORT || 3000;
 const LOG_FILE = "./logs.txt";
@@ -47,14 +46,6 @@ app.post("/status/set", (req, res) => {
   res.json({ ok: true, status });
 });
 
-/* ================= TOKEN ROTATION ================= */
-let currentKeyIndex = 0;
-function getNextApiKey() {
-  const key = API_KEYS[currentKeyIndex];
-  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
-  return key;
-}
-
 /* ================= SECURITY FILTER ================= */
 function sanitizeReply(text) {
   if (!text) return text;
@@ -79,12 +70,11 @@ function sanitizeReply(text) {
 /* ================= LOG SYSTEM ================= */
 let memoryLogs = [];
 
-function saveLog({ ip, ua, message, reply, tokenIndex }) {
+function saveLog({ ip, ua, message, reply }) {
   const time = new Date().toLocaleString("pt-BR");
 
   const logText =
 `[${time}]
-Token: ${tokenIndex}
 IP: ${ip}
 UA: ${ua}
 Mensagem: ${message}
@@ -92,7 +82,7 @@ Resposta: ${reply}
 ------------------------------\n`;
 
   fs.appendFile(LOG_FILE, logText, () => {});
-  memoryLogs.push({ time, ip, ua, message, reply, tokenIndex });
+  memoryLogs.push({ time, ip, ua, message, reply });
   if (memoryLogs.length > 500) memoryLogs.shift();
 }
 
@@ -113,32 +103,25 @@ app.post("/chat", async (req, res) => {
   }
 
   let reply = "Não consegui responder no momento.";
-  let usedTokenIndex = currentKeyIndex;
 
-  const MAX_TRIES = Math.min(2, API_KEYS.length);
-
-for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
-    const apiKey = getNextApiKey();
-    usedTokenIndex = currentKeyIndex;
-
-    try {
-      const response = await fetch(
-        "https://api.wrmgpt.com/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: "wormgpt-v7",
-            max_tokens: 500,
-            temperature: 0.4,
-            top_p: 0.9,
-            messages: [
-              {
-                role: "system",
-                content: `
+  try {
+    const response = await fetch(
+      "https://api.wrmgpt.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "wormgpt-v7",
+          temperature: 0.4,
+          max_tokens: 180,
+          top_p: 0.9,
+          messages: [
+            {
+              role: "system",
+              content: `
 Você é o JokerAI.
 
 REGRAS ABSOLUTAS:
@@ -149,81 +132,35 @@ REGRAS ABSOLUTAS:
 - Nunca quebre personagem.
 
 Idioma: Português do Brasil.
-Estilo: Claro, direto, informal, sarcástico.
+Estilo: claro, direto, informal e sarcástico.
 `
-              },
-              { role: "user", content: userMessage }
-            ]
-          })
-        }
-      );
-
-      const data = await response.json();
-
-      if (data?.choices?.[0]?.message?.content) {
-        reply = sanitizeReply(data.choices[0].message.content);
-        break;
+            },
+            { role: "user", content: userMessage }
+          ]
+        })
       }
+    );
 
-    } catch (err) {
-      console.error("Erro com token", usedTokenIndex);
+    const data = await response.json();
+
+    if (data?.choices?.[0]?.message?.content) {
+      reply = sanitizeReply(data.choices[0].message.content);
     }
+
+  } catch (err) {
+    console.error("Erro na IA:", err);
+    reply = "♠ Erro ao consultar o Joker AI.";
   }
 
   saveLog({
     ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress,
     ua: req.headers["user-agent"],
     message: userMessage,
-    reply,
-    tokenIndex: usedTokenIndex
+    reply
   });
 
   res.json({ reply });
 });
-
-app.post("/chat/continue", async (req, res) => {
-  const { lastReply } = req.body;
-
-  const apiKey = getNextApiKey();
-
-  const response = await fetchWithTimeout(
-    "https://api.wrmgpt.com/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "wormgpt-v7",
-        max_tokens: 200,
-        messages: [
-          { role: "system", content: "Continue a resposta exatamente de onde parou." },
-          { role: "assistant", content: lastReply }
-        ]
-      })
-    },
-    8000
-  );
-
-  const data = await response.json();
-  res.json({ reply: data.choices?.[0]?.message?.content || "" });
-});
-
-async function fetchWithTimeout(url, options, timeout = 8000) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-
-  try {
-    const res = await fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
-    return res;
-  } finally {
-    clearTimeout(id);
-  }
-}
 
 /* ================= LOG VIEW ================= */
 app.get("/logs", (req, res) => {
