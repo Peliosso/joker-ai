@@ -91,53 +91,59 @@ app.post("/chat", async (req, res) => {
   }
 
   // ===================== /IMG =====================
-  if (userMessage.startsWith("/img")) {
-    const prompt = userMessage.replace("/img", "").trim();
+  // ===================== /IMG =====================
+if (userMessage.startsWith("/img")) {
+  const prompt = userMessage.replace("/img", "").trim();
 
-    if (!prompt) {
-      return res.json({ reply: "♠ Use /img + descrição da imagem." });
-    }
-
-    try {
-      const imgRes = await fetch(
-        "https://api.venice.ai/api/v1/images/generations",
-        {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${process.env.VENICE_API_KEY}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            prompt,
-            model: "default",
-            n: 1,
-            size: "auto",
-            style: "natural",
-            response_format: "b64_json"
-          })
-        }
-      );
-
-      const imgData = await imgRes.json();
-
-      const base64 = imgData?.data?.[0]?.b64_json;
-
-      if (!base64) {
-        return res.json({ reply: "♠ Falha ao gerar imagem." });
-      }
-
-      return res.json({
-        type: "image",
-        image: `data:image/png;base64,${base64}`,
-        reply: `♠ Imagem gerada para: "${prompt}"`
-      });
-
-    } catch (err) {
-      console.error("Erro Venice:", err);
-      return res.json({ reply: "♠ Erro ao gerar imagem." });
-    }
+  if (!process.env.VENICE_API_KEY) {
+    return res.json({ reply: "♠ Venice API Key ausente." });
   }
 
+  if (!prompt) {
+    return res.json({ reply: "♠ Use /img + descrição da imagem." });
+  }
+
+  try {
+    const imgRes = await fetch(
+      "https://api.venice.ai/api/v1/images/generations",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.VENICE_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          prompt,
+          n: 1
+        })
+      }
+    );
+
+    const imgData = await imgRes.json();
+
+    console.log("VENICE RESPONSE:", JSON.stringify(imgData));
+
+    const base64 =
+      imgData?.data?.[0]?.b64_json ||
+      imgData?.data?.[0]?.image_base64;
+
+    if (!base64) {
+      return res.json({
+        reply: "♠ Venice respondeu sem imagem."
+      });
+    }
+
+    return res.json({
+      type: "image",
+      image: `data:image/png;base64,${base64}`,
+      reply: `♠ Imagem gerada`
+    });
+
+  } catch (err) {
+    console.error("Erro Venice:", err);
+    return res.json({ reply: "♠ Erro ao conectar com Venice." });
+  }
+}
   // ===================== TEXTO NORMAL =====================
   let reply = "♠ Não consegui responder.";
 
