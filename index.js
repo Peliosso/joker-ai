@@ -83,7 +83,7 @@ Resposta: ${reply}
 
   fs.appendFile(LOG_FILE, logText, () => {});
   memoryLogs.push({ time, ip, ua, message, reply });
-  if (memoryLogs.length > 500) memoryLogs.shift();
+  if (memoryLogs.length > 800) memoryLogs.shift();
 }
 
 /* ================= CHAT ================= */
@@ -115,8 +115,8 @@ app.post("/chat", async (req, res) => {
         },
         body: JSON.stringify({
           model: "wormgpt-v7",
-          temperature: 0.4,
-          max_tokens: 500,
+          temperature: 0.5,
+          max_tokens: 800,
           top_p: 0.9,
           messages: [
             {
