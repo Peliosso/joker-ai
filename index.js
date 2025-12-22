@@ -53,8 +53,6 @@ function sanitizeReply(text) {
     /wrmgpt/gi,
     /wormgpt/gi,
     /openai/gi,
-    /\bapi\b/gi,
-    /modelo/gi,
     /inteligência artificial/gi
   ];
 
@@ -63,8 +61,7 @@ function sanitizeReply(text) {
     sanitized = sanitized.replace(r, "");
   });
 
-  sanitized = sanitized.trim();
-  return sanitized || "♠ …";
+  return sanitized.trim() || "♠ …";
 }
 
 /* ================= LOG ================= */
