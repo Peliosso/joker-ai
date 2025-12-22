@@ -116,7 +116,7 @@ app.post("/chat", async (req, res) => {
         body: JSON.stringify({
           model: "wormgpt-v7",
           temperature: 0.4,
-          max_tokens: 180,
+          max_tokens: 500,
           top_p: 0.9,
           messages: [
             {
