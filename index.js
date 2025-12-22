@@ -4,6 +4,7 @@ import cors from "cors";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import AbortController from "abort-controller";
 
 /* ================= APP ================= */
 const app = express();
@@ -114,7 +115,9 @@ app.post("/chat", async (req, res) => {
   let reply = "Não consegui responder no momento.";
   let usedTokenIndex = currentKeyIndex;
 
-  for (let attempt = 0; attempt < API_KEYS.length; attempt++) {
+  const MAX_TRIES = Math.min(2, API_KEYS.length);
+
+for (let attempt = 0; attempt < MAX_TRIES; attempt++) {
     const apiKey = getNextApiKey();
     usedTokenIndex = currentKeyIndex;
 
@@ -177,6 +180,50 @@ Estilo: Claro, direto, informal, sarcástico.
 
   res.json({ reply });
 });
+
+app.post("/chat/continue", async (req, res) => {
+  const { lastReply } = req.body;
+
+  const apiKey = getNextApiKey();
+
+  const response = await fetchWithTimeout(
+    "https://api.wrmgpt.com/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "wormgpt-v7",
+        max_tokens: 200,
+        messages: [
+          { role: "system", content: "Continue a resposta exatamente de onde parou." },
+          { role: "assistant", content: lastReply }
+        ]
+      })
+    },
+    8000
+  );
+
+  const data = await response.json();
+  res.json({ reply: data.choices?.[0]?.message?.content || "" });
+});
+
+async function fetchWithTimeout(url, options, timeout = 8000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    return res;
+  } finally {
+    clearTimeout(id);
+  }
+}
 
 /* ================= LOG VIEW ================= */
 app.get("/logs", (req, res) => {
