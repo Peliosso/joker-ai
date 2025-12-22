@@ -14,7 +14,7 @@ app.use(cors());
 const API_KEY = process.env.WRMGPT_API_KEYS; // OBRIGATÓRIO
 const ADMIN_KEY = process.env.ADMIN_KEY || "joker-admin-171";
 const PORT = process.env.PORT || 3000;
-const LOG_FILE = "./logs.txt";
+const LOG_FILE = "./logs.json";
 
 /* ================= PATH ================= */
 const __filename = fileURLToPath(import.meta.url);
@@ -66,14 +66,25 @@ function sanitizeReply(text) {
 
 /* ================= LOG ================= */
 function saveLog({ ip, ua, message, reply }) {
-  const time = new Date().toLocaleString("pt-BR");
+  let logs = [];
 
-  const logText =
-`[${time}]
-IP: ${ip}
-UA: ${ua}
-Mensagem: ${message}
-Resposta: ${reply}
+  if (fs.existsSync(LOG_FILE)) {
+    logs = JSON.parse(fs.readFileSync(LOG_FILE, "utf8"));
+  }
+
+  logs.unshift({
+    time: new Date().toLocaleString("pt-BR"),
+    ip,
+    ua,
+    message,
+    reply
+  });
+
+  fs.writeFileSync(
+    LOG_FILE,
+    JSON.stringify(logs.slice(0, 300), null, 2)
+  );
+}
 ------------------------------\n`;
 
   fs.appendFile(LOG_FILE, logText, () => {});
