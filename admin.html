@@ -1,135 +1,191 @@
-import express from "express";
-import fetch from "node-fetch";
-import cors from "cors";
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Joker AI • Painel Admin</title>
 
-const app = express();
-app.use(cors());
-app.use(express.json());
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Playfair+Display&display=swap" rel="stylesheet">
 
-/* ================= CONFIG ================= */
+<style>
+:root{
+  --gold:#d4b46a;
+  --gold-soft:#e6c87a;
+  --dark:#050302;
+}
 
-const PORT = process.env.PORT || 3000;
-const API_KEY = process.env.WRMGPT_API_KEY; // sua key da IA
-const ADMIN_KEY = process.env.ADMIN_KEY;   // key do admin
+*{box-sizing:border-box}
 
-const AI_URL = "https://api.wrmgpt.com/v1/chat"; 
-// ajuste se sua API for outra
+body{
+  margin:0;
+  background:#000;
+  color:#f3e6c8;
+  font-family:'Playfair Display',serif;
+}
 
-/* ================= STATUS GLOBAL ================= */
+/* ===== HEADER ===== */
+header{
+  padding:18px;
+  text-align:center;
+  font-family:'Cinzel',serif;
+  border-bottom:1px solid rgba(212,180,106,.35);
+  color:var(--gold);
+}
 
-let SYSTEM_STATUS = "online"; 
-// online | offline | maintenance
+/* ===== STATUS ===== */
+.status-box{
+  text-align:center;
+  margin:30px 0;
+}
+.status{
+  font-size:18px;
+}
+.status.online{color:#7CFF7C}
+.status.offline{color:#FF7C7C}
+.status.maintenance{color:#FFD27C}
 
-app.get("/status", (req, res) => {
-  res.json({ status: SYSTEM_STATUS });
-});
+/* ===== BUTTONS ===== */
+.actions{
+  display:flex;
+  justify-content:center;
+  gap:12px;
+  margin-top:20px;
+}
+.actions button{
+  padding:12px 20px;
+  border-radius:18px;
+  border:1px solid rgba(212,180,106,.4);
+  background:rgba(212,180,106,.08);
+  color:#f3e6c8;
+  cursor:pointer;
+  transition:.3s;
+}
+.actions button:hover{
+  background:linear-gradient(135deg,var(--gold-soft),#9c7c2f);
+  color:#1b1208;
+}
 
-app.post("/status/set", (req, res) => {
-  const { key, status } = req.body;
+/* ===== INPUT ===== */
+.admin-key{
+  text-align:center;
+  margin-top:20px;
+}
+.admin-key input{
+  padding:10px 14px;
+  border-radius:14px;
+  border:1px solid rgba(212,180,106,.4);
+  background:rgba(212,180,106,.08);
+  color:#f3e6c8;
+  width:220px;
+}
 
-  if (key !== ADMIN_KEY) {
-    return res.status(403).json({ error: "Acesso negado" });
+/* ===== LOGS ===== */
+.logs{
+  max-width:900px;
+  margin:40px auto;
+  padding:20px;
+  border-top:1px solid rgba(212,180,106,.35);
+}
+.log{
+  padding:12px;
+  border-bottom:1px solid rgba(212,180,106,.2);
+  font-size:13px;
+}
+.log span{
+  color:var(--gold);
+}
+</style>
+</head>
+
+<body>
+
+<header>🃏 Joker AI • Painel Administrativo</header>
+
+<div class="admin-key">
+  <input id="adminKey" placeholder="ADMIN KEY" type="password" />
+</div>
+
+<div class="status-box">
+  <div id="status" class="status">Carregando…</div>
+
+  <div class="actions">
+    <button onclick="setStatus('online')">Online</button>
+    <button onclick="setStatus('maintenance')">Manutenção</button>
+    <button onclick="setStatus('offline')">Offline</button>
+  </div>
+</div>
+
+<div class="logs" id="logs"></div>
+
+<script>
+const statusEl = document.getElementById("status");
+const logsEl = document.getElementById("logs");
+const adminKeyInput = document.getElementById("adminKey");
+
+/* ===== STATUS ===== */
+async function loadStatus(){
+  try{
+    const res = await fetch("/status");
+    const data = await res.json();
+    applyStatus(data.status);
+  }catch{
+    statusEl.textContent = "Erro ao carregar status";
   }
+}
 
-  if (!["online", "offline", "maintenance"].includes(status)) {
-    return res.status(400).json({ error: "Status inválido" });
-  }
+function applyStatus(type){
+  statusEl.className = "status " + type;
 
-  SYSTEM_STATUS = status;
-  res.json({ ok: true, status });
-});
+  if(type === "online") statusEl.textContent = "● Online";
+  if(type === "offline") statusEl.textContent = "● Offline";
+  if(type === "maintenance") statusEl.textContent = "● Manutenção";
+}
 
-/* ================= LOGS ================= */
+async function setStatus(type){
+  const key = adminKeyInput.value.trim();
+  if(!key) return alert("Informe a ADMIN KEY");
 
-const LOGS = [];
+  const res = await fetch("/status/set",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ key, status:type })
+  });
 
-app.get("/logs", (req, res) => {
-  const { key } = req.query;
+  const data = await res.json();
+  if(data.error) alert(data.error);
+  else loadStatus();
+}
 
-  if (key !== ADMIN_KEY) {
-    return res.status(403).json({ error: "Acesso negado" });
-  }
+/* ===== LOGS ===== */
+async function loadLogs(){
+  const key = adminKeyInput.value.trim();
+  if(!key) return;
 
-  res.json(LOGS.slice(-200).reverse());
-});
+  try{
+    const res = await fetch(`/logs?key=${key}`);
+    const data = await res.json();
 
-/* ================= CHAT ================= */
+    logsEl.innerHTML = "<h3>Logs recentes</h3>";
 
-app.post("/chat", async (req, res) => {
-  const { message } = req.body;
-  const ip =
-    req.headers["x-forwarded-for"] ||
-    req.socket.remoteAddress ||
-    "unknown";
-
-  if (!message) {
-    return res.json({ reply: "Mensagem vazia." });
-  }
-
-  if (SYSTEM_STATUS === "offline") {
-    return res.json({
-      reply: "♠ O Joker AI está offline no momento."
+    data.forEach(l=>{
+      const div = document.createElement("div");
+      div.className = "log";
+      div.innerHTML = `
+        <span>${l.time}</span><br>
+        IP: ${l.ip}<br>
+        Mensagem: ${l.message}<br>
+        Resposta: ${l.reply}
+      `;
+      logsEl.appendChild(div);
     });
-  }
+  }catch{}
+}
 
-  if (SYSTEM_STATUS === "maintenance") {
-    return res.json({
-      reply: "♠ O Joker AI está em manutenção. Volte mais tarde."
-    });
-  }
+/* ===== AUTO REFRESH ===== */
+loadStatus();
+setInterval(loadStatus, 5000);
+setInterval(loadLogs, 8000);
+</script>
 
-  try {
-    const r = await fetch(AI_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${API_KEY}`
-      },
-      body: JSON.stringify({
-        messages: [
-          {
-            role: "system",
-            content:
-              "Você é o Joker AI, um assistente elegante, direto e premium."
-          },
-          {
-            role: "user",
-            content: message
-          }
-        ]
-      })
-    });
-
-    const data = await r.json();
-    const reply =
-      data.reply ||
-      data.choices?.[0]?.message?.content ||
-      "Sem resposta no momento.";
-
-    LOGS.push({
-      time: new Date().toLocaleString("pt-BR"),
-      ip,
-      message,
-      reply,
-      ua: req.headers["user-agent"]
-    });
-
-    res.json({ reply });
-  } catch (e) {
-    res.json({
-      reply: "Erro ao conectar com a IA."
-    });
-  }
-});
-
-/* ================= HEALTH ================= */
-
-app.get("/", (req, res) => {
-  res.send("🃏 Joker AI Backend Online");
-});
-
-/* ================= START ================= */
-
-app.listen(PORT, () => {
-  console.log("🃏 Joker AI rodando na porta " + PORT);
-});
+</body>
+</html>
