@@ -162,6 +162,22 @@ Estilo: claro, direto, informal e sarcástico.
   res.json({ reply });
 });
 
+let conversations = new Map();
+
+const history = conversations.get(ip) || [];
+
+history.push({ role:"user", content:userMessage });
+
+const response = await fetch(...{
+  messages: [
+    systemPrompt,
+    ...history
+  ]
+});
+
+history.push({ role:"assistant", content: reply });
+conversations.set(ip, history.slice(-8)); // limite
+
 /* ================= LOG VIEW ================= */
 app.get("/logs", (req, res) => {
   if (req.query.key !== ADMIN_KEY) {
