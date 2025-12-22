@@ -11,7 +11,7 @@ app.use(express.json());
 app.use(cors());
 
 /* ================= CONFIG ================= */
-const API_KEY = process.env.WRMGPT_API_KEY; // UM ÚNICO TOKEN
+const API_KEY = process.env.WRMGPT_API_KEYS; // UM ÚNICO TOKEN
 const ADMIN_KEY = process.env.ADMIN_KEY || "joker-admin-171";
 const PORT = process.env.PORT || 3000;
 const LOG_FILE = "./logs.txt";
