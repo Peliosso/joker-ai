@@ -248,6 +248,9 @@ Sempre PT-BR.
       return res.json({ reply: "♠ Erro ao gerar imagem." });
     }
   }
+  
+  const OWNER_NAME = "Boca";
+let ANTI_LINK = false;
 
   /* ===== TEXTO ===== */
   let reply = "♠ Não consegui responder.";
