@@ -98,12 +98,29 @@ function isImageRequest(text) {
 
 /* ================= CHAT ================= */
 app.post("/chat", async (req, res) => {
+  const names = loadNames();
   const userMessage = req.body.message;
   const ip = getClientIp(req);
+  const names = loadNames();
+  const displayName = names[ip] || "Anônimo";
   const ua = req.headers["user-agent"];
 
   if (!userMessage) {
     return res.json({ reply: "♠ Mensagem vazia." });
+    
+    if(userMessage.startsWith("/editar")){
+  const newName = userMessage.replace("/editar","").trim();
+
+  if(newName.length < 2 || newName.length > 18){
+    return res.json({ reply:"♠ Nome inválido." });
+  }
+
+  names[ip] = newName;
+  saveNames(names);
+
+  return res.json({ reply:`♠ Nome alterado para **${newName}**` });
+}
+    
   }
 
   /* ===== IMAGEM ===== */
@@ -222,6 +239,17 @@ app.get("/logs", (req, res) => {
   if (!fs.existsSync(LOG_FILE)) return res.json([]);
   res.json(JSON.parse(fs.readFileSync(LOG_FILE, "utf8")));
 });
+
+const NAME_FILE = path.join(LOG_DIR, "names.json");
+
+function loadNames(){
+  if(!fs.existsSync(NAME_FILE)) return {};
+  return JSON.parse(fs.readFileSync(NAME_FILE,"utf8"));
+}
+
+function saveNames(data){
+  fs.writeFileSync(NAME_FILE, JSON.stringify(data,null,2));
+}
 
 /* ================= HEALTH ================= */
 app.get("/", (req, res) => {
