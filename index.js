@@ -7,8 +7,22 @@ import { fileURLToPath } from "url";
 
 /* ================= APP ================= */
 const app = express();
+
+// 👇 MUITO IMPORTANTE (IP real atrás de proxy)
+app.set("trust proxy", true);
+
 app.use(express.json());
 app.use(cors());
+
+function getClientIp(req) {
+  return (
+    req.headers["cf-connecting-ip"] ||          // Cloudflare
+    req.headers["x-forwarded-for"]?.split(",")[0] || // Proxies
+    req.socket?.remoteAddress ||
+    req.ip ||
+    "desconhecido"
+  );
+}
 
 /* ================= PATH ================= */
 const __filename = fileURLToPath(import.meta.url);
@@ -85,7 +99,7 @@ function isImageRequest(text) {
 /* ================= CHAT ================= */
 app.post("/chat", async (req, res) => {
   const userMessage = req.body.message;
-  const ip = req.ip;
+  const ip = getClientIp(req);
   const ua = req.headers["user-agent"];
 
   if (!userMessage) {
