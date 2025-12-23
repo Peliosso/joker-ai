@@ -44,16 +44,6 @@ header{
   animation:fadeDown .8s ease;
 }
 
-<div id="refreshInfo" style="
-  text-align:center;
-  font-size:12px;
-  color:#d4b46a;
-  opacity:.7;
-  margin-top:6px;
-">
-  🔄 Atualizando automaticamente…
-</div>
-
 /* ===== INPUT ===== */
 .admin-key{
   text-align:center;
@@ -167,6 +157,16 @@ header{
 <canvas id="particles"></canvas>
 
 <header>🃏 Joker AI • Painel Administrativo</header>
+
+<div id="refreshInfo" style="
+  text-align:center;
+  font-size:12px;
+  color:#d4b46a;
+  opacity:.7;
+  margin-top:6px;
+">
+  🔄 Atualizando automaticamente…
+</div>
 
 <div class="admin-key">
   <input id="adminKey" placeholder="ADMIN KEY" type="password">
@@ -283,13 +283,14 @@ async function loadLogs(){
     if(openIps.has(ip)) body.style.display="block";
 
     grouped[ip].forEach(l=>{
-      body.innerHTML += `
-        <div class="log">
-          <span>${l.time}</span><br>
-          Mensagem: ${l.message}<br>
-          Resposta: ${l.reply}
-        </div>`;
-    });
+  body.innerHTML += `
+    <div class="log">
+      <span>${l.time}</span><br>
+      <strong>Nome:</strong> <span>${l.name || "Anônimo"}</span><br>
+      <strong>Mensagem:</strong> ${l.message}<br>
+      <strong>Resposta:</strong> ${l.reply}
+    </div>`;
+});
 
     header.onclick = ()=>{
       if(body.style.display==="block"){
