@@ -114,6 +114,9 @@ app.post("/chat", async (req, res) => {
 
   const names = loadNames();
   const displayName = names[ip] || "Anônimo";
+  
+  const OWNER_NAME = "Boca";
+  let ANTI_LINK = false;
 
   /* ===== COMANDO /editar ===== */
   if (userMessage.startsWith("/editar")) {
@@ -136,6 +139,18 @@ app.post("/chat", async (req, res) => {
 
     return res.json({ reply: `♠ Nome alterado para **${newName}**` });
   }
+  
+  /* ===== COMANDO /limpar ===== */
+if (userMessage === "/limpar") {
+  if (displayName !== OWNER_NAME) {
+    return res.json({ reply: "♠ Você não manda nem no seu espelho." });
+  }
+
+  // limpa logs
+  fs.writeFileSync(LOG_FILE, "[]");
+
+  return res.json({ reply: "♠ O caos foi varrido. Chat limpo." });
+}
 
   /* ===== COMANDO /img ===== */
   if (userMessage.startsWith("/img")) {
@@ -248,9 +263,6 @@ Sempre PT-BR.
       return res.json({ reply: "♠ Erro ao gerar imagem." });
     }
   }
-  
-  const OWNER_NAME = "Boca";
-let ANTI_LINK = false;
 
   /* ===== TEXTO ===== */
   let reply = "♠ Não consegui responder.";
