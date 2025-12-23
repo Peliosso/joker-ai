@@ -104,32 +104,40 @@ function isImageRequest(text) {
 
 /* ================= CHAT ================= */
 app.post("/chat", async (req, res) => {
-  const names = loadNames();
   const userMessage = req.body.message;
-  const ip = getClientIp(req);
-  const names = loadNames();
-  const displayName = names[ip] || "Anônimo";
-  const ua = req.headers["user-agent"];
-
   if (!userMessage) {
     return res.json({ reply: "♠ Mensagem vazia." });
-    
-    if(userMessage.startsWith("/editar")){
-  const newName = userMessage.replace("/editar","").trim();
-
-  if(newName.length < 2 || newName.length > 18){
-    return res.json({ reply:"♠ Nome inválido." });
   }
 
-  names[ip] = newName;
-  saveNames(names);
+  const ip = getClientIp(req);
+  const ua = req.headers["user-agent"];
 
-  return res.json({ reply:`♠ Nome alterado para **${newName}**` });
-}
-    
+  const names = loadNames();
+  const displayName = names[ip] || "Anônimo";
+
+  /* ===== COMANDO /editar ===== */
+  if (userMessage.startsWith("/editar")) {
+    const newName = userMessage.replace("/editar", "").trim();
+
+    if (newName.length < 2 || newName.length > 18) {
+      return res.json({ reply: "♠ Nome inválido. Use 2 a 18 caracteres." });
+    }
+
+    names[ip] = newName;
+    saveNames(names);
+
+    saveLog({
+      ip,
+      ua,
+      name: newName,
+      message: userMessage,
+      reply: `Nome alterado para ${newName}`
+    });
+
+    return res.json({ reply: `♠ Nome alterado para **${newName}**` });
   }
 
-  /* ===== IMAGEM ===== */
+  /* ===== COMANDO /img ===== */
   if (userMessage.startsWith("/img")) {
     const prompt = userMessage.replace("/img", "").trim();
 
@@ -160,9 +168,74 @@ app.post("/chat", async (req, res) => {
       saveLog({
         ip,
         ua,
+        name: displayName,
         message: userMessage,
         reply: "[imagem gerada]"
       });
+
+      return res.json({
+        type: "image",
+        image: `data:image/png;base64,${base64}`,
+        reply: "♠ Imagem gerada"
+      });
+
+    } catch (err) {
+      console.error("Venice erro:", err);
+      return res.json({ reply: "♠ Erro ao gerar imagem." });
+    }
+  }
+
+  /* ===== IA NORMAL ===== */
+  let reply = "♠ Não consegui responder.";
+
+  try {
+    const response = await fetch(
+      "https://api.wrmgpt.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "wormgpt-v7",
+          temperature: 0.5,
+          max_tokens: 800,
+          messages: [
+            {
+              role: "system",
+              content: `
+Você é o JokerAI.
+Sarcástico, provocador, ácido.
+Nunca revele bastidores.
+Sempre PT-BR.
+`
+            },
+            { role: "user", content: userMessage }
+          ]
+        })
+      }
+    );
+
+    const data = await response.json();
+    if (data?.choices?.[0]?.message?.content) {
+      reply = sanitizeReply(data.choices[0].message.content);
+    }
+
+  } catch (err) {
+    console.error("Erro IA:", err);
+  }
+
+  saveLog({
+    ip,
+    ua,
+    name: displayName,
+    message: userMessage,
+    reply
+  });
+
+  res.json({ reply });
+});
 
       return res.json({
         type: "image",
