@@ -1,17 +1,18 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Joker AI • Painel Admin</title>
 
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Playfair+Display&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Playfair+Display&display=swap" rel="stylesheet">
 
 <style>
 :root{
   --gold:#d4b46a;
   --gold-soft:#e6c87a;
   --dark:#050302;
+  --glass:rgba(255,255,255,.05);
 }
 
 *{box-sizing:border-box}
@@ -21,24 +22,51 @@ body{
   background:#000;
   color:#f3e6c8;
   font-family:'Playfair Display',serif;
+  overflow-x:hidden;
+}
+
+/* ===== PARTICLES ===== */
+canvas{
+  position:fixed;
+  inset:0;
+  z-index:-1;
 }
 
 /* ===== HEADER ===== */
 header{
-  padding:18px;
+  padding:22px;
   text-align:center;
   font-family:'Cinzel',serif;
-  border-bottom:1px solid rgba(212,180,106,.35);
   color:var(--gold);
+  font-size:20px;
+  letter-spacing:2px;
+  border-bottom:1px solid rgba(212,180,106,.3);
+  animation:fadeDown .8s ease;
+}
+
+/* ===== INPUT ===== */
+.admin-key{
+  text-align:center;
+  margin:30px 0 10px;
+}
+.admin-key input{
+  padding:12px 18px;
+  border-radius:18px;
+  border:1px solid rgba(212,180,106,.4);
+  background:var(--glass);
+  color:#f3e6c8;
+  width:240px;
+  font-size:14px;
 }
 
 /* ===== STATUS ===== */
 .status-box{
   text-align:center;
-  margin:30px 0;
+  margin-top:20px;
 }
 .status{
   font-size:18px;
+  margin-bottom:10px;
 }
 .status.online{color:#7CFF7C}
 .status.offline{color:#FF7C7C}
@@ -48,14 +76,13 @@ header{
 .actions{
   display:flex;
   justify-content:center;
-  gap:12px;
-  margin-top:20px;
+  gap:14px;
 }
 .actions button{
-  padding:12px 20px;
-  border-radius:18px;
+  padding:12px 22px;
+  border-radius:20px;
   border:1px solid rgba(212,180,106,.4);
-  background:rgba(212,180,106,.08);
+  background:var(--glass);
   color:#f3e6c8;
   cursor:pointer;
   transition:.3s;
@@ -63,51 +90,80 @@ header{
 .actions button:hover{
   background:linear-gradient(135deg,var(--gold-soft),#9c7c2f);
   color:#1b1208;
-}
-
-/* ===== INPUT ===== */
-.admin-key{
-  text-align:center;
-  margin-top:20px;
-}
-.admin-key input{
-  padding:10px 14px;
-  border-radius:14px;
-  border:1px solid rgba(212,180,106,.4);
-  background:rgba(212,180,106,.08);
-  color:#f3e6c8;
-  width:220px;
+  transform:translateY(-2px);
 }
 
 /* ===== LOGS ===== */
 .logs{
-  max-width:900px;
-  margin:40px auto;
+  max-width:1000px;
+  margin:50px auto;
   padding:20px;
-  border-top:1px solid rgba(212,180,106,.35);
 }
+.logs h3{
+  text-align:center;
+  font-family:'Cinzel',serif;
+  color:var(--gold);
+  margin-bottom:30px;
+}
+
+/* ===== IP CARD ===== */
+.ip-card{
+  background:rgba(255,255,255,.03);
+  border:1px solid rgba(212,180,106,.25);
+  border-radius:18px;
+  margin-bottom:20px;
+  overflow:hidden;
+  animation:fadeUp .5s ease;
+}
+.ip-header{
+  padding:14px 18px;
+  cursor:pointer;
+  font-weight:bold;
+  color:var(--gold-soft);
+  display:flex;
+  justify-content:space-between;
+}
+.ip-header:hover{
+  background:rgba(212,180,106,.08);
+}
+.ip-logs{
+  display:none;
+  padding:15px 20px;
+  border-top:1px solid rgba(212,180,106,.2);
+}
+
+/* ===== LOG ITEM ===== */
 .log{
-  padding:12px;
-  border-bottom:1px solid rgba(212,180,106,.2);
+  padding:10px 0;
+  border-bottom:1px dashed rgba(212,180,106,.2);
   font-size:13px;
 }
-.log span{
-  color:var(--gold);
+.log:last-child{border-bottom:none}
+.log span{color:var(--gold)}
+
+@keyframes fadeDown{
+  from{opacity:0; transform:translateY(-20px)}
+  to{opacity:1}
+}
+@keyframes fadeUp{
+  from{opacity:0; transform:translateY(20px)}
+  to{opacity:1}
 }
 </style>
 </head>
 
 <body>
 
+<canvas id="particles"></canvas>
+
 <header>🃏 Joker AI • Painel Administrativo</header>
 
 <div class="admin-key">
-  <input id="adminKey" placeholder="ADMIN KEY" type="password" />
+  <input id="adminKey" placeholder="ADMIN KEY" type="password">
 </div>
 
 <div class="status-box">
   <div id="status" class="status">Carregando…</div>
-
   <div class="actions">
     <button onclick="setStatus('online')">Online</button>
     <button onclick="setStatus('maintenance')">Manutenção</button>
@@ -118,73 +174,111 @@ header{
 <div class="logs" id="logs"></div>
 
 <script>
-const statusEl = document.getElementById("status");
-const logsEl = document.getElementById("logs");
-const adminKeyInput = document.getElementById("adminKey");
+/* ===== PARTICLES ===== */
+const c = document.getElementById("particles");
+const ctx = c.getContext("2d");
+let w,h,particles=[];
+function resize(){
+  w=c.width=window.innerWidth;
+  h=c.height=window.innerHeight;
+}
+window.onresize=resize;
+resize();
+
+for(let i=0;i<70;i++){
+  particles.push({
+    x:Math.random()*w,
+    y:Math.random()*h,
+    r:Math.random()*2+1,
+    v:Math.random()*0.4+0.2
+  });
+}
+function animate(){
+  ctx.clearRect(0,0,w,h);
+  ctx.fillStyle="rgba(212,180,106,.6)";
+  particles.forEach(p=>{
+    p.y+=p.v;
+    if(p.y>h) p.y=0;
+    ctx.beginPath();
+    ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+    ctx.fill();
+  });
+  requestAnimationFrame(animate);
+}
+animate();
 
 /* ===== STATUS ===== */
+const statusEl=document.getElementById("status");
+const logsEl=document.getElementById("logs");
+const adminKeyInput=document.getElementById("adminKey");
+
 async function loadStatus(){
   try{
-    const res = await fetch("/status");
-    const data = await res.json();
-    applyStatus(data.status);
-  }catch{
-    statusEl.textContent = "Erro ao carregar status";
-  }
-}
-
-function applyStatus(type){
-  statusEl.className = "status " + type;
-
-  if(type === "online") statusEl.textContent = "● Online";
-  if(type === "offline") statusEl.textContent = "● Offline";
-  if(type === "maintenance") statusEl.textContent = "● Manutenção";
-}
-
-async function setStatus(type){
-  const key = adminKeyInput.value.trim();
-  if(!key) return alert("Informe a ADMIN KEY");
-
-  const res = await fetch("/status/set",{
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body:JSON.stringify({ key, status:type })
-  });
-
-  const data = await res.json();
-  if(data.error) alert(data.error);
-  else loadStatus();
-}
-
-/* ===== LOGS ===== */
-async function loadLogs(){
-  const key = adminKeyInput.value.trim();
-  if(!key) return;
-
-  try{
-    const res = await fetch(`/logs?key=${key}`);
-    const data = await res.json();
-
-    logsEl.innerHTML = "<h3>Logs recentes</h3>";
-
-    data.forEach(l=>{
-      const div = document.createElement("div");
-      div.className = "log";
-      div.innerHTML = `
-        <span>${l.time}</span><br>
-        IP: ${l.ip}<br>
-        Mensagem: ${l.message}<br>
-        Resposta: ${l.reply}
-      `;
-      logsEl.appendChild(div);
-    });
+    const r=await fetch("/status");
+    const d=await r.json();
+    statusEl.className="status "+d.status;
+    statusEl.textContent="● "+d.status;
   }catch{}
 }
 
-/* ===== AUTO REFRESH ===== */
+async function setStatus(type){
+  const key=adminKeyInput.value.trim();
+  if(!key) return alert("Informe a ADMIN KEY");
+  await fetch("/status/set",{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({key,status:type})
+  });
+  loadStatus();
+}
+
+/* ===== LOGS AGRUPADOS POR IP ===== */
+async function loadLogs(){
+  const key=adminKeyInput.value.trim();
+  if(!key) return;
+
+  const r=await fetch(`/logs?key=${key}`);
+  const data=await r.json();
+
+  const grouped={};
+  data.forEach(l=>{
+    grouped[l.ip]=grouped[l.ip]||[];
+    grouped[l.ip].push(l);
+  });
+
+  logsEl.innerHTML="<h3>Logs por IP</h3>";
+
+  Object.keys(grouped).forEach(ip=>{
+    const card=document.createElement("div");
+    card.className="ip-card";
+
+    const header=document.createElement("div");
+    header.className="ip-header";
+    header.innerHTML=`${ip} <span>${grouped[ip].length} msgs</span>`;
+
+    const body=document.createElement("div");
+    body.className="ip-logs";
+
+    grouped[ip].forEach(l=>{
+      body.innerHTML+=`
+        <div class="log">
+          <span>${l.time}</span><br>
+          Mensagem: ${l.message}<br>
+          Resposta: ${l.reply}
+        </div>`;
+    });
+
+    header.onclick=()=> body.style.display =
+      body.style.display==="block"?"none":"block";
+
+    card.append(header,body);
+    logsEl.appendChild(card);
+  });
+}
+
 loadStatus();
-setInterval(loadStatus, 5000);
-setInterval(loadLogs, 8000);
+setInterval(loadStatus,5000);
+setInterval(loadLogs,8000);
 </script>
 
 </body>
