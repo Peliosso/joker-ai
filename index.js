@@ -73,7 +73,13 @@ function sanitizeReply(text = "") {
 }
 
 /* ================= LOG ================= */
-function saveLog({ ip, ua, message, reply }) {
+saveLog({
+  ip,
+  ua,
+  name: displayName,
+  message: userMessage,
+  reply
+});
   let logs = [];
 
   if (fs.existsSync(LOG_FILE)) {
