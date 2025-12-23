@@ -44,6 +44,16 @@ header{
   animation:fadeDown .8s ease;
 }
 
+<div id="refreshInfo" style="
+  text-align:center;
+  font-size:12px;
+  color:#d4b46a;
+  opacity:.7;
+  margin-top:6px;
+">
+  🔄 Atualizando automaticamente…
+</div>
+
 /* ===== INPUT ===== */
 .admin-key{
   text-align:center;
@@ -174,6 +184,10 @@ header{
 <div class="logs" id="logs"></div>
 
 <script>
+/* ===== CONFIG ===== */
+const REFRESH_STATUS = 5000; // status
+const REFRESH_LOGS = 7000;   // logs
+
 /* ===== PARTICLES ===== */
 const c = document.getElementById("particles");
 const ctx = c.getContext("2d");
@@ -207,60 +221,69 @@ function animate(){
 }
 animate();
 
-/* ===== STATUS ===== */
-const statusEl=document.getElementById("status");
-const logsEl=document.getElementById("logs");
-const adminKeyInput=document.getElementById("adminKey");
+/* ===== ELEMENTOS ===== */
+const statusEl = document.getElementById("status");
+const logsEl = document.getElementById("logs");
+const adminKeyInput = document.getElementById("adminKey");
+const refreshInfo = document.getElementById("refreshInfo");
 
+let openIps = new Set();
+
+/* ===== STATUS ===== */
 async function loadStatus(){
   try{
-    const r=await fetch("/status");
-    const d=await r.json();
-    statusEl.className="status "+d.status;
-    statusEl.textContent="● "+d.status;
+    const r = await fetch("/status");
+    const d = await r.json();
+    statusEl.className = "status " + d.status;
+    statusEl.textContent = "● " + d.status;
   }catch{}
 }
 
 async function setStatus(type){
-  const key=adminKeyInput.value.trim();
+  const key = adminKeyInput.value.trim();
   if(!key) return alert("Informe a ADMIN KEY");
+
   await fetch("/status/set",{
     method:"POST",
     headers:{ "Content-Type":"application/json" },
-    body:JSON.stringify({key,status:type})
+    body:JSON.stringify({ key, status:type })
   });
   loadStatus();
 }
 
-/* ===== LOGS AGRUPADOS POR IP ===== */
+/* ===== LOGS AGRUPADOS POR IP (SEM RESETAR ABERTOS) ===== */
 async function loadLogs(){
-  const key=adminKeyInput.value.trim();
+  const key = adminKeyInput.value.trim();
   if(!key) return;
 
-  const r=await fetch(`/logs?key=${key}`);
-  const data=await r.json();
+  refreshInfo.textContent = "🔄 Atualizando logs…";
 
-  const grouped={};
+  const r = await fetch(`/logs?key=${key}`);
+  const data = await r.json();
+
+  logsEl.innerHTML = "<h3>Logs por IP</h3>";
+
+  const grouped = {};
   data.forEach(l=>{
-    grouped[l.ip]=grouped[l.ip]||[];
+    grouped[l.ip] = grouped[l.ip] || [];
     grouped[l.ip].push(l);
   });
 
-  logsEl.innerHTML="<h3>Logs por IP</h3>";
-
   Object.keys(grouped).forEach(ip=>{
-    const card=document.createElement("div");
-    card.className="ip-card";
+    const card = document.createElement("div");
+    card.className = "ip-card";
 
-    const header=document.createElement("div");
-    header.className="ip-header";
-    header.innerHTML=`${ip} <span>${grouped[ip].length} msgs</span>`;
+    const header = document.createElement("div");
+    header.className = "ip-header";
+    header.innerHTML = `${ip} <span>${grouped[ip].length} msgs</span>`;
 
-    const body=document.createElement("div");
-    body.className="ip-logs";
+    const body = document.createElement("div");
+    body.className = "ip-logs";
+
+    if(openIps.has(ip)) body.style.display="block";
 
     grouped[ip].forEach(l=>{
-      body.innerHTML+=`
+      body.innerHTML += `
         <div class="log">
           <span>${l.time}</span><br>
           Mensagem: ${l.message}<br>
@@ -268,17 +291,29 @@ async function loadLogs(){
         </div>`;
     });
 
-    header.onclick=()=> body.style.display =
-      body.style.display==="block"?"none":"block";
+    header.onclick = ()=>{
+      if(body.style.display==="block"){
+        body.style.display="none";
+        openIps.delete(ip);
+      }else{
+        body.style.display="block";
+        openIps.add(ip);
+      }
+    };
 
     card.append(header,body);
     logsEl.appendChild(card);
   });
+
+  refreshInfo.textContent = "🔄 Atualizando automaticamente…";
 }
 
+/* ===== AUTO REFRESH ===== */
 loadStatus();
-setInterval(loadStatus,5000);
-setInterval(loadLogs,8000);
+loadLogs();
+
+setInterval(loadStatus, REFRESH_STATUS);
+setInterval(loadLogs, REFRESH_LOGS);
 </script>
 
 </body>
