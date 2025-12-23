@@ -10,21 +10,29 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-/* ================= CONFIG ================= */
-const API_KEY = process.env.WRMGPT_API_KEYS; // OBRIGATÓRIO
-const ADMIN_KEY = process.env.ADMIN_KEY || "joker-admin-171";
-const PORT = process.env.PORT || 3000;
-const LOG_FILE = "./logs.json";
-
 /* ================= PATH ================= */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/* ================= CONFIG ================= */
+const API_KEY = process.env.WRMGPT_API_KEYS; // obrigatório
+const ADMIN_KEY = process.env.ADMIN_KEY || "joker-admin-171";
+const PORT = process.env.PORT || 3000;
+
+/* ================= LOG PATH ================= */
+const LOG_DIR = path.join(__dirname, "logs");
+const LOG_FILE = path.join(LOG_DIR, "logs.json");
+
+/* cria pasta de logs */
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR);
+}
 
 /* ================= STATIC ================= */
 app.use(express.static(__dirname));
 
 /* ================= STATUS ================= */
-let SYSTEM_STATUS = "online"; // online | offline | maintenance
+let SYSTEM_STATUS = "online";
 
 app.get("/status", (req, res) => {
   res.json({ status: SYSTEM_STATUS });
@@ -33,35 +41,21 @@ app.get("/status", (req, res) => {
 app.post("/status/set", (req, res) => {
   const { key, status } = req.body;
 
-  if (key !== ADMIN_KEY) {
+  if (key !== ADMIN_KEY)
     return res.status(403).json({ error: "Acesso negado" });
-  }
 
-  if (!["online", "offline", "maintenance"].includes(status)) {
+  if (!["online", "offline", "maintenance"].includes(status))
     return res.status(400).json({ error: "Status inválido" });
-  }
 
   SYSTEM_STATUS = status;
   res.json({ ok: true, status });
 });
 
 /* ================= SANITIZE ================= */
-function sanitizeReply(text) {
-  if (!text) return "";
-
-  const forbidden = [
-    /wrmgpt/gi,
-    /wormgpt/gi,
-    /openai/gi,
-    /inteligência artificial/gi
-  ];
-
-  let sanitized = text;
-  forbidden.forEach(r => {
-    sanitized = sanitized.replace(r, "");
-  });
-
-  return sanitized.trim() || "♠ …";
+function sanitizeReply(text = "") {
+  return text
+    .replace(/wrmgpt|wormgpt|openai|inteligência artificial/gi, "")
+    .trim() || "♠ …";
 }
 
 /* ================= LOG ================= */
@@ -80,103 +74,72 @@ function saveLog({ ip, ua, message, reply }) {
     reply
   });
 
-  fs.writeFileSync(
-    LOG_FILE,
-    JSON.stringify(logs.slice(0, 300), null, 2)
-  );
+  fs.writeFileSync(LOG_FILE, JSON.stringify(logs.slice(0, 300), null, 2));
 }
-------------------------------\n`;
 
-  fs.appendFile(LOG_FILE, logText, () => {});
+/* ================= IMAGE DETECT ================= */
+function isImageRequest(text) {
+  return /^\/img\s|imagem|foto|desenho|ilustra/i.test(text);
 }
 
 /* ================= CHAT ================= */
 app.post("/chat", async (req, res) => {
-  try {
-    const { message } = req.body;
+  const userMessage = req.body.message;
+  const ip = req.ip;
+  const ua = req.headers["user-agent"];
 
-    if (!message) {
-      return res.json({
-        reply: "♠ Mensagem vazia. Digite algo."
-      });
+  if (!userMessage) {
+    return res.json({ reply: "♠ Mensagem vazia." });
+  }
+
+  /* ===== IMAGEM ===== */
+  if (userMessage.startsWith("/img")) {
+    const prompt = userMessage.replace("/img", "").trim();
+
+    if (!process.env.VENICE_API_KEY) {
+      return res.json({ reply: "♠ Venice API Key ausente." });
     }
 
-    // decide se é imagem ou texto
-    if (isImageRequest(message)) {
-      return await handleImage(message, res);
-    }
+    try {
+      const imgRes = await fetch(
+        "https://api.venice.ai/api/v1/images/generations",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.VENICE_API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ prompt, n: 1 })
+        }
+      );
 
-    return await handleText(message, res);
+      const imgData = await imgRes.json();
+      const base64 = imgData?.data?.[0]?.b64_json;
 
-  } catch (err) {
-    console.error("🔥 ERRO GERAL:", err);
-
-    return res.json({
-      reply: "♠ O sistema está instável agora. Tente novamente."
-    });
-  }
-});
-
-  // ===================== /IMG =====================
-  // ===================== /IMG =====================
-if (userMessage.startsWith("/img")) {
-  const prompt = userMessage.replace("/img", "").trim();
-
-  if (!process.env.VENICE_API_KEY) {
-    return res.json({ reply: "♠ Venice API Key ausente." });
-  }
-
-  if (!prompt) {
-    return res.json({ reply: "♠ Use /img + descrição da imagem." });
-  }
-
-  try {
-    const imgRes = await fetch(
-      "https://api.venice.ai/api/v1/images/generations",
-      {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.VENICE_API_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          prompt,
-          n: 1
-        })
+      if (!base64) {
+        return res.json({ reply: "♠ Erro ao gerar imagem." });
       }
-    );
 
-    const imgData = await imgRes.json();
-
-    console.log("VENICE RESPONSE:", JSON.stringify(imgData));
-
-    const base64 =
-      imgData?.data?.[0]?.b64_json ||
-      imgData?.data?.[0]?.image_base64;
-
-    if (!base64) {
-      return res.json({
-        reply: "♠ Venice respondeu sem imagem."
+      saveLog({
+        ip,
+        ua,
+        message: userMessage,
+        reply: "[imagem gerada]"
       });
+
+      return res.json({
+        type: "image",
+        image: `data:image/png;base64,${base64}`,
+        reply: "♠ Imagem gerada"
+      });
+
+    } catch (err) {
+      console.error("Venice erro:", err);
+      return res.json({ reply: "♠ Erro ao gerar imagem." });
     }
-
-    return res.json({
-      type: "image",
-      image: `data:image/png;base64,${base64}`,
-      reply: `♠ Imagem gerada`
-    });
-
-  } catch (err) {
-    console.error("Erro Venice:", err);
-    return res.json({ reply: "♠ Erro ao conectar com Venice." });
   }
-}
 
-function isImageRequest(text) {
-  return /(imagem|foto|desenho|ilustra|criar imagem|gera imagem)/i.test(text);
-}
-
-  // ===================== TEXTO NORMAL =====================
+  /* ===== TEXTO ===== */
   let reply = "♠ Não consegui responder.";
 
   try {
@@ -185,7 +148,7 @@ function isImageRequest(text) {
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${process.env.WRMGPT_API_KEYS}`,
+          Authorization: `Bearer ${API_KEY}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
@@ -209,7 +172,6 @@ Responda em PT-BR.
     );
 
     const data = await response.json();
-
     if (data?.choices?.[0]?.message?.content) {
       reply = sanitizeReply(data.choices[0].message.content);
     }
@@ -218,15 +180,17 @@ Responda em PT-BR.
     console.error("Erro IA:", err);
   }
 
+  saveLog({ ip, ua, message: userMessage, reply });
   res.json({ reply });
 });
 
 /* ================= LOG VIEW ================= */
 app.get("/logs", (req, res) => {
-  if (req.query.key !== ADMIN_KEY) {
-    return res.status(403).send("Acesso negado.");
-  }
-  res.sendFile(path.resolve(LOG_FILE));
+  if (req.query.key !== ADMIN_KEY)
+    return res.status(403).json({ error: "Acesso negado" });
+
+  if (!fs.existsSync(LOG_FILE)) return res.json([]);
+  res.json(JSON.parse(fs.readFileSync(LOG_FILE, "utf8")));
 });
 
 /* ================= HEALTH ================= */
